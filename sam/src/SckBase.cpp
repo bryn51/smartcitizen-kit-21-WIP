@@ -134,10 +134,11 @@ void SckBase::setup()
 		OneSensor *wichSensor = &sensors[sensors.sensorsPriorized(i)];
 		if (wichSensor->location == BOARD_AUX) {
 			if (config.sensors[wichSensor->type].enabled) {
-				bool R=enableSensor(wichSensor->type);
-				if (!R) {
-					sckOut("Aux enable sensor returned false",PRIO_MED,true);
-				}
+				enableSensor(wichSensor->type);
+				//bool R=enableSensor(wichSensor->type);
+				//if (!R) {
+				//	sckOut("Aux enable sensor returned false",PRIO_LOW,true);
+				//}
 			} else {
 				wichSensor->enabled = false;
 				wichSensor->oled_display = false;
@@ -166,9 +167,9 @@ void SckBase::update()
 	// This is where the system controls actions such as periodically updating sensors
 	if (millis() - reviewStateMillis > 250) {
 		reviewStateMillis = millis();
-		sckOut("SckBase:update reviewState called",PRIO_LOW,true);
+		//sckOut("SckBase:update reviewState called",PRIO_LOW,true);
 		reviewState();
-		sckOut("SckBase:update reviewState returned",PRIO_LOW,true);
+		//sckOut("SckBase:update reviewState returned",PRIO_LOW,true);
 	}
 
 	if (millis() - updatePowerMillis > 1000) {
@@ -1786,8 +1787,12 @@ bool SckBase::enableSensor(SensorType wichSensor)
 		case BOARD_AUX:	{
 					sckOut("SckBase::enableSensor: BOARD_AUX called AUX.start",PRIO_LOW,true);
 					if (auxBoards.start(this, wichSensor)) {
-	
+						sprintf(outBuff,"Sensor started: %s", sensors[wichSensor].title);
+						sckOut(PRIO_LOW,true);
 						result = true;
+					} else {
+						sprintf(outBuff,"Sensor NOT started: %s", sensors[wichSensor].title);
+						sckOut(PRIO_LOW,true);
 					}
 					sckOut("SckBase::enableSensor: BOARD_AUX returned ok",PRIO_LOW,true);
 					break;
@@ -1849,7 +1854,7 @@ bool SckBase::getReading(OneSensor *wichSensor)
 	switch (wichSensor->location) {
 		case BOARD_BASE:
 		{
-			sckOut("Base:getReading: BOARD_BASE", PRIO_LOW,true);
+			//sckOut("Base:getReading: BOARD_BASE", PRIO_LOW,true);
 			switch (wichSensor->type) {
 				case SENSOR_BATT_PERCENT:
 					if (!battery.present) wichSensor->reading = String("-1");
@@ -1871,22 +1876,22 @@ bool SckBase::getReading(OneSensor *wichSensor)
 		}
 		case BOARD_URBAN:
 		{
-			sckOut("Base:getReading: BOARD_URBAN", PRIO_LOW,true);
-			sprintf(outBuff, "Reading requested from %s", wichSensor->title);
-			sckOut(PRIO_LOW,true);
+			//sckOut("Base:getReading: BOARD_URBAN", PRIO_LOW,true);
+			//sprintf(outBuff, "Reading requested from %s", wichSensor->title);
+			//sckOut(PRIO_MED,true);
 			urban.getReading(this, wichSensor);
-			sprintf(outBuff, "Returned from taking a reading from %s", wichSensor->title);
-			sckOut(PRIO_LOW,true);
+			//sprintf(outBuff, "Returned from taking a reading from %s", wichSensor->title);
+			//sckOut(PRIO_MED,true);
 			break;
 		}
 		case BOARD_AUX:
 		{
-			sckOut("Base:getReading: BOARD_AUX", PRIO_LOW,true);
-			sprintf(outBuff, "Reading requested from %s", wichSensor->title);
-			sckOut(PRIO_LOW,true);
+			//sckOut("Base:getReading: BOARD_AUX", PRIO_LOW,true);
+			//sprintf(outBuff, "Reading requested from %s", wichSensor->title);
+			//sckOut(PRIO_MED,true);
 			auxBoards.getReading(this, wichSensor);
-			sprintf(outBuff, "Returned from taking a reading from %s", wichSensor->title);
-			sckOut(PRIO_LOW,true);
+			//sprintf(outBuff, "Returned from taking a reading from %s", wichSensor->title);
+			//sckOut(PRIO_MED,true);
 			break;
 		}
 	}
@@ -1909,9 +1914,6 @@ bool SckBase::getReading(OneSensor *wichSensor)
 		float aux_temp = wichSensor->reading.toFloat();
 
 		// Correct depending on battery/USB and network/sd card status
-		// this seems arbitrary: what is the status of this TODO ?
-		// why not check the URBAN temp Sensor against numerous other temp sensors that we have on board ?
-
 		if (charger.onUSB) {
 			if (st.mode == MODE_NET) wichSensor->reading = String(aux_temp - 2.6);
 			else wichSensor->reading = String(aux_temp - 1.6);
@@ -1921,7 +1923,6 @@ bool SckBase::getReading(OneSensor *wichSensor)
 
 	} else if(wichSensor->type == SENSOR_HUMIDITY) {
 		float aux_hum = wichSensor->reading.toFloat();
-		// again with the arbitrary adjustments ?  What is the point of a sensor if we cannot believe the results ?
 		wichSensor->reading = String(aux_hum + 10);
 	}
     
@@ -1929,8 +1930,8 @@ bool SckBase::getReading(OneSensor *wichSensor)
 }
 bool SckBase::controlSensor(SensorType wichSensorType, String wichCommand)
 {
-	sprintf(outBuff, "Base:controlSensor: controlling %s", sensors[wichSensorType].title);
-	sckOut(PRIO_LOW,true);
+	//sprintf(outBuff, "Base:controlSensor: controlling %s", sensors[wichSensorType].title);
+	//sckOut(PRIO_LOW,true);
 				
 	if (sensors[wichSensorType].controllable)  {
 		sprintf(outBuff, "%s: %s", sensors[wichSensorType].title, wichCommand.c_str());
@@ -2139,9 +2140,6 @@ void SckBase::getUniqueID()
 
 	sprintf(uniqueID_str,  "%lX%lX%lX%lX", uniqueID[0], uniqueID[1], uniqueID[2], uniqueID[3]);
 }
-
-
-
 
 bool I2Cdetect(TwoWire *_Wire, byte address)
 {

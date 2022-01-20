@@ -643,35 +643,36 @@ void i2cDetect_mux_com(SckBase* base, String parameters)
 	uint8_t error;
 	uint8_t nDevices=0;
 	uint8_t tDevices=0;
+	//uint8_t muxAddress=0x00;
 
 	
 	sprintf(base->outBuff, "(i2cDetect_mux_com V3) discovery... ");
-	base->sckOut();
+	base->sckOut(PRIO_LOW,true);
 	for (uint8_t wichWire=0; wichWire<2; wichWire++) {
 		switch (wichWire) {
 			case 0: {
-				base->sckOut("Searching for devices on internal I2C bus...");
+				base->sckOut("Searching for devices on internal I2C bus...",PRIO_MED,true);
 				for( address = 1; address < 127; address++ ) {
 					Wire.beginTransmission(address);
 					error = Wire.endTransmission();
 					if (error == 0) {
 						sprintf(base->outBuff, "I2C device found at address 0x%02x", address);
-						base->sckOut();
+						base->sckOut(PRIO_MED,true);
 						nDevices++;
 					} else if (error==4) {
-						sprintf(base->outBuff, "Unknown error at address 0x%02x", address);
-						base->sckOut();
+						sprintf(base->outBuff, "Unknown error communicating with address 0x%02x", address);
+						base->sckOut(PRIO_MED,true);
 					
 					}
 				}
-				sprintf(base->outBuff, "\r\n %u Devices found on Internal I2C Bus\r\n", nDevices);
-				base->sckOut();
+				sprintf(base->outBuff, "\r\n %u viable Devices found on Internal I2C Bus\r\n", nDevices);
+				base->sckOut(PRIO_MED,true);
 				tDevices+=nDevices;
 				nDevices=0;
 				break;
 			}
 			case 1: {
-				base->sckOut("\r\nSearching for devices on Auxiliary I2C bus...");
+				base->sckOut("\r\nSearching for devices on Auxiliary I2C bus...",PRIO_MED,true);
 				if (base->tcaMuxMode()) {
 					nDevices=base->listMuxChanMap();
 				} else {
@@ -680,24 +681,26 @@ void i2cDetect_mux_com(SckBase* base, String parameters)
 						error = auxWire.endTransmission();
 						if (error == 0) {
 							sprintf(base->outBuff, "I2C device found at address 0x%02x", address);
-							base->sckOut();
+							base->sckOut(PRIO_MED,true);
 							nDevices++;
+							
 						} else if (error==4) {
-							sprintf(base->outBuff, "Unknown error at address 0x%02x", address);
-							base->sckOut();
+							sprintf(base->outBuff, "Unknown error communicating with address 0x%02x", address);
+							base->sckOut(PRIO_MED,true);
 						
 						}
 					}
 				}
-				sprintf(base->outBuff, "\r\n %u Devices found on Aux Bus\r\n", nDevices);
+				sprintf(base->outBuff, "\r\n %u viable Devices found on Aux Bus\r\n", nDevices);
 				base->sckOut();
 				tDevices+=nDevices;
 				
 				break;
 			}
+			
 		}
-		sprintf(base->outBuff, "\r\n %u Total Devices \r\n", nDevices);
-		base->sckOut();
+		sprintf(base->outBuff, "\r\n %u Total Devices \r\n", tDevices);
+		base->sckOut(PRIO_LOW,true);
 	}
 }
 // ============

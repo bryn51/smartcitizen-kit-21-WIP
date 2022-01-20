@@ -1,4 +1,11 @@
 #pragma once
+
+#define GASBOARD_DISABLE
+#define ATLAS_DISABLE
+#define CHIRP_DISABLE
+#define MISC_DISABLE
+#define SCD30_DISABLE
+
 #include <Arduino.h>
 #include <SckBase.h>
 #include <Sensors.h>
@@ -11,7 +18,9 @@
 #include <Adafruit_INA219.h>
 
 // Gases Board libs
+#ifndef GASBOARD_DISABLE
 #include <GasesBoard.h>
+#endif
 
 // Urban board library
 #include <SckUrban.h>
@@ -21,22 +30,27 @@
 // Icons for screen
 #include <Icons.h>
 
+#ifndef MISC_DISABLE
 // DS2482 library (I2C-1Wire bridge)
 #include <DS2482.h>
+#endif
 
+#ifndef CHIRP_DISABLE
 // I2C Moisture Sensor (chirp)
 #include <I2CSoilMoistureSensor.h>
+#endif
 
 // Libraries for DallasTemp
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
+#ifndef MISC_DISABLE
 // Sparkfun VL6180x time of flight range finder
 #include <SparkFun_VL6180X.h>
 
 // Adafruit BME608 library
 #include <Adafruit_BME680.h>
-
+#endif
 // Library for GPS data parsing
 #include "TinyGPS++.h"
 
@@ -62,11 +76,13 @@
 #include "GasesBoardTester.h"
 #endif
 
+#ifndef SCD30_DISABLE
 // Sparkfun library for SCD30 CO2 sensor
 #include <SparkFun_SCD30_Arduino_Library.h>
+#endif
 
 // Sparkfun library for SCD4x (SCD41) CO2 sensor
-//#include <SparkFun_SCD4x_Arduino_Library.h>
+#include <SparkFun_SCD4x_Arduino_Library.h>
 
 // Seeed Studios TCA9549A 8 channel I2C Mux (Switch)
 // deployed in SCS V3 when needed to help balance the I2C bus when one device blocks others from using the bus.
@@ -99,6 +115,11 @@ typedef struct I2C_MuxChannel {						// struct to hold addr/chan/type/xclusive i
 	bool exclusive;
 } muxChannel;
 
+union byteint {
+	uint8_t i;
+	byte b;
+};
+
 class AuxBoards
 {
 
@@ -108,6 +129,7 @@ class AuxBoards
 		// TODO: store this in epprom, load it on boot, make a function to change the addresses by console command
 		// TODO2: check sensor count for SCD41
 		byte devAddress[SENSOR_COUNT - 24] {
+			#ifndef GASBOARD_DISABLE
 			0x55,			// SENSOR_GASESBOARD_SLOT_1A,
 			0x55,			// SENSOR_GASESBOARD_SLOT_1W,
 			0x56,			// SENSOR_GASESBOARD_SLOT_2A,
@@ -116,30 +138,36 @@ class AuxBoards
 			0x54,			// SENSOR_GASESBOARD_SLOT_3W,
 			0x44,			// SENSOR_GASESBOARD_TEMPERATURE,
 			0x44,			// SENSOR_GASESBOARD_HUMIDITY,
-
+			#endif
 			0x59,			// SENSOR_GROOVE_I2C_ADC,
 
 			0x40,			// SENSOR_INA219_BUSVOLT,
 			0x40,			// SENSOR_INA219_SHUNT,
 			0x40,			// SENSOR_INA219_CURRENT,
 			0x40,			// SENSOR_INA219_LOADVOLT,
-
+			#ifndef MISC_DISABLE
 			0x18, 			// SENSOR_WATER_TEMP_DS18B20,
+			#endif
+			#ifndef ATLAS_DISABLE
 			0x66,			// SENSOR_ATLAS_TEMPERATURE,
 			0x63,			// SENSOR_ATLAS_PH,
 			0x64,			// SENSOR_ATLAS_EC,
 			0x64,			// SENSOR_ATLAS_EC_SG,
 			0x61,			// SENSOR_ATLAS_DO,		--> Conflict with SENSOR_SCD30_CO2 (et al)
 			0x61,			// SENSOR_ATLAS_DO_SAT,	--> Conflict with SENSOR_SCD30_CO2
-
+			#endif
+			#ifndef SCD30_DISABLE
 			0x61, 			// SENSOR_SCD30_CO2, 	--> Conflict with SENSOR_ATLAS_DO
 			0x61, 			// SENSOR_SCD30_TEMP, 	--> Conflict with SENSOR_ATLAS_DO
 			0x61, 			// SENSOR_SCD30_HUM, 	--> Conflict with SENSOR_ATLAS_DO
+			#endif
 
+			#ifndef CHIRP_DISABLE
 			0x20,			// SENSOR_CHIRP_MOISTURE_RAW,
 			0x20,			// SENSOR_CHIRP_MOISTURE,
 			0x20,			// SENSOR_CHIRP_TEMPERATURE,
 			0x20,			// SENSOR_CHIRP_LIGHT,
+			#endif
 
 			0x02,			// SENSOR_EXT_PM_1,
 			0x02,			// SENSOR_EXT_PM_25,
@@ -170,7 +198,9 @@ class AuxBoards
 			0x02,			// SENSOR_EXT_B_PN_10,
 
 			0x02,			// SENSOR_PM_DALLAS_TEMP,
+			#ifndef MISC_DISABLE
 			0x00,			// SENSOR_DALLAS_TEMP, 		-- 2 wire (no I2C address)
+			
 
 			0x44,			// SENSOR_SHT31_TEMP,
 			0x44,			// SENSOR_SHT31_HUM,
@@ -184,7 +214,7 @@ class AuxBoards
 			0x77,			// SENSOR_BME680_HUMIDITY,
 			0x77,			// SENSOR_BME680_PRESSURE,
 			0x77,			// SENSOR_BME680_VOCS,
-
+			#endif
 			0x02, 			// SENSOR_GPS_* Grove Gps (on PM board)
 			0x10, 			// SENSOR_GPS_* XA111 Gps
 			0x42, 			// SENSOR_GPS_* NEO-M8U Gps
@@ -203,12 +233,12 @@ class AuxBoards
 			0x62, 			// SENSOR_SCD4x_HUM, 	 
 			
 			//(0x12			// PM Board (2)
-			0x12,			// SENSOR_WIND_DIR
-			0x12,			// SENSOR_WIND_SPEED
-			0x12,			// SENSOR_RAIN_ACC
-			0x12,			// SENSOR_RAIN_EVENTACC
-			0x12,			// SENSOR_RAIN_TOTALACC
-			0x12			// SENSOR_RAIN_INTERVAL
+			0x03,			// SENSOR_WIND_DIR
+			0x03,			// SENSOR_WIND_SPEED
+			0x03,			// SENSOR_RAIN_ACC
+			0x03,			// SENSOR_RAIN_EVENTACC
+			0x03,			// SENSOR_RAIN_TOTALACC
+			0x03			// SENSOR_RAIN_INTERVAL
 			
 		};
 
@@ -226,18 +256,21 @@ class AuxBoards
 
 		uint8_t restartTCAMux();
 
+
 		EepromAuxData data;
 		bool dataLoaded = false;
 
 		// 8 Channel I2C MUX
 		bool TCAMUXMODE=false;
+		byteint muxAddress;
+		
 
 		// uint8_t findDevicePort(TwoWire *_Wire, byte address);	// find the port that a device is connected to.
 													// there are two versions: one uses Aux Bus to find addresses; the other performs 
-													// a lookup in the Vector Array
+													// a lookup in the Array
 		uint8_t findDeviceChan(SckBase* base,byte address, SensorType wichSensor,bool openChan,bool exclusive=false);	// find the port that a device is connected to.
 													// there are two versions: one uses Aux Bus to find addresses; the other performs 
-													// a lookup in the Vector Array
+													// a lookup in the  Array  This is the latter
 		uint8_t tcaDiscoverAMux(SckBase* base,TwoWire *_Wire);		// Discover if a TCA9548A Mux is connected to AUX Bus
 
 		uint8_t AUXI2C_MUXCONNECTED_DEVICES=0;
@@ -245,7 +278,10 @@ class AuxBoards
 		bool buildMuxChannelMap(SckBase* base,TwoWire *_Wire);  	// function to populate channel map
 		bool checkMuxMapEntryUnique(uint8_t address);
 		uint8_t listMuxChanMap(SckBase* base);
-		bool testI2C(SckBase* base,uint8_t address, uint8_t channel,SensorType wichSensor,bool exclusive);
+		// bool testI2C(SckBase* base,uint8_t address, uint8_t channel,SensorType wichSensor,bool exclusive);
+		bool openChannel(SckBase* base,uint8_t address, uint8_t channel,bool exclusive);
+		void testMuxChanMap(SckBase* base);
+
 
 		uint8_t countTCAOpenChannels(SckBase* base);
 	private:
@@ -370,6 +406,7 @@ class Groove_OLED
  *   through the DS2482-100 board. This was based on an example made by
  *   <a href="https://github.com/paeaetech/paeae.git">paeae</a>
  */
+#ifndef MISC_DISABLE
 class WaterTemp_DS18B20
 {
 
@@ -397,6 +434,8 @@ class WaterTemp_DS18B20
 		byte localPortNum= 0x00; // I2c mux port number (0 = no mux)
 
 };
+#endif
+#ifndef ATLAS_DISABLE
 
 class Atlas
 {
@@ -479,7 +518,9 @@ class Atlas
 		byte localPortNum= 0x00; // I2c mux port number (0 = no mux)
 
 };
+#endif
 
+#ifndef CHIRP_DISABLE
 class Moisture
 {
 	private:
@@ -512,6 +553,7 @@ class Moisture
 		void sleep(SckBase* base,AuxBoards* auxBoard, SensorType wichSensor);
 
 };
+#endif
 
 enum PMslot {SLOT_A, SLOT_B, SLOT_AVG};
 enum PMcommands
@@ -577,8 +619,6 @@ class PMsensor
 
 };
 
-typedef enum PM2slot {WIND, RAIN} pm2slot;
-
 typedef enum PM2commands {
 	none=0,
 	COMM_START_WIND,
@@ -591,10 +631,13 @@ typedef enum PM2commands {
 	COMM_GET_RAIN_EVENTACC,
 	COMM_GET_RAIN_TOTALACC,
 	COMM_GET_RAIN_INTVACC,
+	COMM_RAIN_RESETACCUM,
+	COMM_RAIN_CHECK,
 	NUM_COMMANDS
 } PM2sensorCommand;
 
 struct ReadingSize {
+	SensorType command;
 	PM2sensorCommand sensor;
 	byte bytes;
 	uint32_t lastReadingTime;	
@@ -608,38 +651,50 @@ union windandrainrdg {
 class PM2sensor
 {
 	public:
-		PM2sensor(PM2slot wichSlot) {
-			_slot = wichSlot;
-		}
-		const byte deviceAddress = 0x12;
+		//PM2sensor() ;  // default cnstructor
+		const byte deviceAddress = 0x03;
 
 		bool start(SckBase* base,AuxBoards* auxBoard, SensorType wichSensor);
 		bool stop(SckBase* base,AuxBoards* auxBoard, SensorType wichSensor);
 		bool update(SckBase* base,AuxBoards* auxBoard, SensorType wichSensor);
-		String windDir;
-		String windSpeed;
-		String rainAcc;
-		String rainEventAcc;
-		String rainTotalAcc;
-		String rainIntAcc;
+		String windDir="0.0000000";
+		String windSpeed="0.000000";
+		String rainAcc="0.000000";
+		String rainEventAcc="0.000000";
+		String rainTotalAcc="0.000000";
+		String rainIntAcc="0.000000";
 	private:
+		uint8_t enabled[6][2] = { 
+			{SENSOR_WIND_DIR, 0}, 
+			{SENSOR_WIND_SPEED, 0}, 
+			{SENSOR_RAIN_ACC, 0},
+			{SENSOR_RAIN_EVENTACC, 0},
+			{SENSOR_RAIN_TOTALACC, 0},
+			{SENSOR_RAIN_INTERVAL, 0} 
+		};
+
 		bool started = false;
 		bool failed = false;
 
-		PM2slot _slot;
 		ReadingSize getReadingSize(SensorType wichSensor);
 		void setLastReading(SensorType wichSensor,PM2sensorCommand wichCommand);
+		
+		// look up PM2 commands based on SensorType:  PM2 Command enumeration must match
+		// the same in PM2 firmware (!)
 		ReadingSize v_readingFetchSizes[NUM_COMMANDS] {
-			ReadingSize{COMM_START_WIND,0,0},
-			ReadingSize{COMM_STOP_WIND,0,0},
-			ReadingSize{COMM_GET_WIND_DIR,4,0},
-			ReadingSize{COMM_GET_WIND_SPEED,4,0},
-			ReadingSize{COMM_START_RAIN,0,0},
-			ReadingSize{COMM_STOP_RAIN,0,0},
-			ReadingSize{COMM_GET_RAIN_ACC,4,0},
-			ReadingSize{COMM_GET_RAIN_EVENTACC,4,0},
-			ReadingSize{COMM_GET_RAIN_TOTALACC,4,0},
-			ReadingSize{COMM_GET_RAIN_INTVACC,4,0}
+			{SENSOR_COUNT,none,0,0},
+			{SENSOR_COUNT,COMM_START_WIND,1,0},
+			{SENSOR_COUNT,COMM_STOP_WIND,1,0},
+			{SENSOR_WIND_DIR,COMM_GET_WIND_DIR,4,0},
+			{SENSOR_WIND_SPEED,COMM_GET_WIND_SPEED,4,0},
+			{SENSOR_COUNT,COMM_START_RAIN,1,0},
+			{SENSOR_COUNT,COMM_STOP_RAIN,1,0},
+			{SENSOR_RAIN_ACC,COMM_GET_RAIN_ACC,4,0},
+			{SENSOR_RAIN_EVENTACC,COMM_GET_RAIN_EVENTACC,4,0},
+			{SENSOR_RAIN_TOTALACC,COMM_GET_RAIN_TOTALACC,4,0},
+			{SENSOR_RAIN_INTERVAL,COMM_GET_RAIN_INTVACC,4,0},
+			{SENSOR_COUNT,COMM_RAIN_RESETACCUM,1,0},
+			{SENSOR_COUNT,COMM_RAIN_CHECK,1,0}
 		};
 		// uint32_t lastReading = 0;
 		byte localPortNum= 0x00; // I2c mux port number (0 = no mux)
@@ -791,6 +846,7 @@ class NEOM8UGPS: public GPS_Source
 
 };
 
+#ifndef MISC_DISABLE
 class Sck_DallasTemp
 {
 	// This is for a Dallas temperature sensor connected to the plugged in (direct, not via I2C) Aux groove connector using pin pinAUX_WIRE_SCL (13 - PA17)
@@ -804,7 +860,8 @@ class Sck_DallasTemp
 		uint8_t _oneWireAddress[8];
 		
 };
-
+#endif
+#ifndef MISC_DISABLE
 class Sck_Range
 {
 	public:
@@ -844,7 +901,7 @@ class Sck_BME680
 		byte localPortNum= 0x00; // I2c mux port number (0 = no mux)
 
 };
-
+#endif
 class Sck_ADS1X15
 {
 	public:
@@ -878,6 +935,7 @@ class Sck_ADS1X15
 	// Test ADS1015
 };
 
+#ifndef SCD30_DISABLE
 class Sck_SCD30
 {
 	public:
@@ -906,7 +964,8 @@ class Sck_SCD30
 		byte localPortNum= 0x00; // I2c mux port number (0 = no mux)
 
 };
-#include "SparkFun_SCD4x_Arduino_Library.h"
+#endif
+
 
 class Sck_SCD4x
 {

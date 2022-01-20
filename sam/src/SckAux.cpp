@@ -3,26 +3,38 @@
 #include <String.h>
 #include "SckAux.h"
 
+#ifndef GASBOARD_DISABLE
 GasesBoard		gasBoard;
+#endif
 GrooveI2C_ADC		grooveI2C_ADC;
 INA219			ina219;
 Groove_OLED		groove_OLED;
+#ifndef MISC_DISABLE
 WaterTemp_DS18B20 	waterTemp_DS18B20;
+#endif
+#ifndef ATLAS_DISABLE
 Atlas			atlasPH = Atlas(SENSOR_ATLAS_PH);
 Atlas			atlasEC = Atlas(SENSOR_ATLAS_EC);
 Atlas			atlasDO = Atlas(SENSOR_ATLAS_DO);
 Atlas 			atlasTEMP = Atlas(SENSOR_ATLAS_TEMPERATURE);
+#endif
+#ifndef CHIRP_DISABLE
 Moisture 		moistureChirp;
+#endif
 PMsensor		pmSensorA = PMsensor(SLOT_A);
 PMsensor		pmSensorB = PMsensor(SLOT_B);
-PM2sensor		wind = PM2sensor(WIND);
-PM2sensor		rain = PM2sensor(RAIN);
+PM2sensor		windandrain;
+
 PM_DallasTemp 		pmDallasTemp;
+#ifndef MISC_DISABLE
 Sck_DallasTemp 		dallasTemp;
+#endif
 Sck_SHT31 		sht31 = Sck_SHT31(&auxWire);
 Sck_SHT31 		sht35 = Sck_SHT31(&auxWire, 0x45);
+#ifndef MISC_DISABLE
 Sck_Range 		range;
 Sck_BME680 		bme680;
+#endif
 Sck_GPS 		gps;
 PM_Grove_GPS 		pmGroveGps;
 XA111GPS 		xa1110gps;
@@ -31,63 +43,78 @@ Sck_ADS1X15 		ads48;
 Sck_ADS1X15 		ads49;
 Sck_ADS1X15 		ads4A;
 Sck_ADS1X15 		ads4B;
+#ifndef SCD30_DISABLE
 Sck_SCD30 		scd30;
-Sck_SCD4x		scd4x;
+#endif
+Sck_SCD4x		scd4x;		// the default is SCD40 - not what we have here
 TCA9548A<TwoWire> TCA;
+
+
 
 // Eeprom flash emulation to store I2C address
 FlashStorage(eepromAuxData, EepromAuxData);
 
 bool AuxBoards::start(SckBase* base, SensorType wichSensor)
 {
-	base->sckOut("AuxBoards::start: called",PRIO_LOW,true);
+	//base->sckOut("AuxBoards::start: called",PRIO_MED,true);
+	
+	byte error =0;
 	if (!dataLoaded) {	
 		base->sckOut("AUX loading eepromdata",PRIO_LOW,true);
 		data = eepromAuxData.read();
 		dataLoaded = true;
-		base->sckOut("AUX eepromdata data loaded",PRIO_LOW,true);
+		base->sckOut("AUX eepromdata data loaded",PRIO_MED,true);
 
+		#ifndef CHIRP_DISABLE
 		if (data.calibration.moistureCalDataValid) {
 			moistureChirp.dryPoint = data.calibration.dryPoint;
 			moistureChirp.wetPoint = data.calibration.wetPoint;
 			moistureChirp.calibrated = true;
 		}
 		base->sckOut("AUX moisture calibration data loaded",PRIO_LOW,true);
+		#endif
+		
 
 		// TCA9548A I2C Mux initialisation and auxWire channel discovery
 		// (only needs to be loaded once)
 		long timer=micros();							
 
-		base->sckOut("AUX TCA Mux asked to begin",PRIO_MED,true);
-		//sprintf(base->outBuff,"%s",TCA.Hello());
-		bool res=false;
-		uint32_t tcatimer=millis();
 		uint16_t ctr=0;
-		while (!res && (millis()-tcatimer <1000)) {
-			res=TCA.begin(auxWire,0x70);
+		muxAddress.i=tcaDiscoverAMux(base,&auxWire);		// discover the I2C Mux address if any is installed.
+		sprintf(base->outBuff,"TCA Mux address found: 0x%03x", muxAddress.b);
+		base->sckOut(PRIO_MED,true);
+		uint32_t tcatimer=micros();
+		while ((micros()-tcatimer <100)) {
+			//base->sckOut("in while loop...",PRIO_MED,true);
+			TCA.begin(auxWire,muxAddress.i);				// begin the instance of TCA 9458A
+			delayMicroseconds(10);							// allow a short delay for instantiation;
+			auxWire.beginTransmission(muxAddress.b);		// check that the Mux is talking
+			error = auxWire.endTransmission();
 			ctr++;
+			if (error == 0) {
+				TCAMUXMODE=true;
+				//base->sckOut("AUX TCA building Channel Map",PRIO_MED,true);
+				buildMuxChannelMap(base,&auxWire);
+				//base->sckOut("AUX TCA Channel Map built",PRIO_MED,true);
+			} else {
+				//base->sckOut("There was an error connecting to TCA Mux",PRIO_MED,true);
+				TCAMUXMODE=false;
+			}
 		}
 		sprintf(base->outBuff,"TCA begin took %i attempts",ctr);
-		base->sckOut(PRIO_MED,true);
-
-		if (!res) {
-			base->sckOut("TCA Mux failed to begin - not found ?",PRIO_MED,true);
-		} else {
-			base->sckOut("AUX TCA building Channel Map",PRIO_LOW,true);
-			TCAMUXMODE=buildMuxChannelMap(base,&auxWire);		// discover if there is a MUX and how many devices it can access
-			base->sckOut("AUX TCA Channel Map built",PRIO_LOW,true);
-
-		}
-				
-		int timetaken=micros()-timer;
-		sprintf(base->outBuff, "I2C MUX discovery took %u seconds\r\n", timetaken/1000);
+		base->sckOut(PRIO_LOW,true);
+		
+		int timetaken=(micros()- timer )/1000;	// milliseconds
+		sprintf(base->outBuff, "I2C MUX discovery took %i seconds\r\n", timetaken/1000);
 		base->sckOut(PRIO_LOW,true);
 	}
 
-	base->sckOut("AUX received a start request for a subordinate",PRIO_LOW,true);
+
+	sprintf(base->outBuff,"AUX is trying to start up: %s",base->sensors[wichSensor].title);
+	base->sckOut(PRIO_LOW,true);
 
 	switch (wichSensor) {
-
+		#ifndef GASBOARD_DISABLE
 		case SENSOR_GASESBOARD_SLOT_1A:
 		case SENSOR_GASESBOARD_SLOT_1W:
 		case SENSOR_GASESBOARD_SLOT_2A:
@@ -96,12 +123,16 @@ bool AuxBoards::start(SckBase* base, SensorType wichSensor)
 		case SENSOR_GASESBOARD_SLOT_3W:
 		case SENSOR_GASESBOARD_HUMIDITY:
 		case SENSOR_GASESBOARD_TEMPERATURE: 	return gasBoard.start(); break;
+		#endif
 		case SENSOR_GROOVE_I2C_ADC: 		return grooveI2C_ADC.start(base,this,wichSensor); break;
 		case SENSOR_INA219_BUSVOLT:
 		case SENSOR_INA219_SHUNT:
 		case SENSOR_INA219_CURRENT:
 		case SENSOR_INA219_LOADVOLT: 		return ina219.start(base,this,wichSensor); break;
+		#ifndef MISC_DISABLE
 		case SENSOR_WATER_TEMP_DS18B20:		return waterTemp_DS18B20.start(base,this,wichSensor); break;
+		#endif
+		#ifndef ATLAS_DISABLE
 		case SENSOR_ATLAS_TEMPERATURE: 		return atlasTEMP.start(base,this,wichSensor); break;
 		case SENSOR_ATLAS_PH:			return atlasPH.start(base,this,wichSensor);
 		case SENSOR_ATLAS_EC:
@@ -110,10 +141,13 @@ bool AuxBoards::start(SckBase* base, SensorType wichSensor)
 		case SENSOR_ATLAS_EC_SG: 		return atlasEC.start(base,this,wichSensor); break;
 		case SENSOR_ATLAS_DO:
 		case SENSOR_ATLAS_DO_SAT: 		return atlasDO.start(base,this,wichSensor); break;
+		#endif
+		#ifndef CHIRP_DISABLE
 		case SENSOR_CHIRP_MOISTURE_RAW:
 		case SENSOR_CHIRP_MOISTURE:
 		case SENSOR_CHIRP_TEMPERATURE:
 		case SENSOR_CHIRP_LIGHT:		return moistureChirp.start(base,this,wichSensor); break;
+		#endif
 		case SENSOR_EXT_A_PM_1:
 		case SENSOR_EXT_A_PM_25:
 		case SENSOR_EXT_A_PM_10:
@@ -133,21 +167,30 @@ bool AuxBoards::start(SckBase* base, SensorType wichSensor)
 		case SENSOR_EXT_B_PN_5:
 		case SENSOR_EXT_B_PN_10: 		return pmSensorB.start(base,this,wichSensor); break;
 		case SENSOR_PM_DALLAS_TEMP: 	return pmDallasTemp.start(base,this,wichSensor); break;
+		#ifndef MISC_DISABLE
 		case SENSOR_DALLAS_TEMP: 		return dallasTemp.start(); break;
+		#endif
 		case SENSOR_SHT31_TEMP:
 		case SENSOR_SHT31_HUM: {
+			#ifndef GASBOARD_DISABLE
 			if (sht31.start() && !gasBoard.start()) return true;
+			#else
+			if (sht31.start()) return true;
+			#endif
 			else return false;
 			break;
+			
 		}
 		case SENSOR_SHT35_TEMP:
 		case SENSOR_SHT35_HUM: 			return sht35.start(); break;
+		#ifndef MISC_DISABLE
 		case SENSOR_RANGE_DISTANCE: 		return range.start(base,this,wichSensor); break;
 		case SENSOR_RANGE_LIGHT: 		return range.start(base,this,wichSensor); break;
 		case SENSOR_BME680_TEMPERATURE:		return bme680.start(base,this,wichSensor); break;
 		case SENSOR_BME680_HUMIDITY:		return bme680.start(base,this,wichSensor); break;
 		case SENSOR_BME680_PRESSURE:		return bme680.start(base,this,wichSensor); break;
 		case SENSOR_BME680_VOCS:		return bme680.start(base,this,wichSensor); break;
+		#endif
 		case SENSOR_GPS_FIX_QUALITY:
 		case SENSOR_GPS_LATITUDE:
 		case SENSOR_GPS_LONGITUDE:
@@ -171,29 +214,32 @@ bool AuxBoards::start(SckBase* base, SensorType wichSensor)
 		case SENSOR_ADS1X15_4B_1:
 		case SENSOR_ADS1X15_4B_2:
 		case SENSOR_ADS1X15_4B_3: 		return ads4B.start(base,0x4B,this,wichSensor); break;
+		#ifndef SCD30_DISABLE
 		case SENSOR_SCD30_CO2: 			return scd30.start(base, SENSOR_SCD30_CO2,this); break;
 		case SENSOR_SCD30_TEMP: 		return scd30.start(base, SENSOR_SCD30_TEMP,this); break;
 		case SENSOR_SCD30_HUM: 			return scd30.start(base, SENSOR_SCD30_HUM,this); break;
+		#endif
 		case SENSOR_SCD4x_CO2: 			return scd4x.start(base, SENSOR_SCD4x_CO2,this); break;
 		case SENSOR_SCD4x_TEMP: 		return scd4x.start(base, SENSOR_SCD4x_TEMP,this); break;
 		case SENSOR_SCD4x_HUM: 			return scd4x.start(base, SENSOR_SCD4x_HUM,this); break;
 		case SENSOR_GROVE_OLED: 		return groove_OLED.start(base,this,wichSensor); break;
-		case SENSOR_WIND_DIR:			return wind.start(base,this,SENSOR_WIND_DIR); break;
-		case SENSOR_WIND_SPEED:			return wind.start(base,this,SENSOR_WIND_SPEED); break;
-		case SENSOR_RAIN_ACC:			return rain.start(base,this,SENSOR_RAIN_ACC); break;
-		case SENSOR_RAIN_EVENTACC:		return rain.start(base,this,SENSOR_RAIN_EVENTACC); break;
-		case SENSOR_RAIN_TOTALACC:		return rain.start(base,this,SENSOR_RAIN_TOTALACC); break;
-		case SENSOR_RAIN_INTERVAL:		return rain.start(base,this,SENSOR_RAIN_INTERVAL); break;
+		case SENSOR_WIND_DIR:			return windandrain.start(base,this,SENSOR_WIND_DIR); break;
+		case SENSOR_WIND_SPEED:			return windandrain.start(base,this,SENSOR_WIND_SPEED); break;
+		case SENSOR_RAIN_ACC:			return windandrain.start(base,this,SENSOR_RAIN_ACC); break;
+		case SENSOR_RAIN_EVENTACC:		return windandrain.start(base,this,SENSOR_RAIN_EVENTACC); break;
+		case SENSOR_RAIN_TOTALACC:		return windandrain.start(base,this,SENSOR_RAIN_TOTALACC); break;
+		case SENSOR_RAIN_INTERVAL:		return windandrain.start(base,this,SENSOR_RAIN_INTERVAL); break;
 		default: break;
 	}
-	base->sckOut("AUX returned from start request",PRIO_LOW,true);
+	//sprintf(base->outBuff,"AUX did not start: %s",base->sensors[wichSensor].title);
+	//base->sckOut(PRIO_LOW,true);
 	return false;
 }
 
 bool AuxBoards::stop(SckBase* base, SensorType wichSensor)
 {
 	switch (wichSensor) {
-
+		#ifndef GASBOARD_DISABLE
 		case SENSOR_GASESBOARD_SLOT_1A:
 		case SENSOR_GASESBOARD_SLOT_1W:
 		case SENSOR_GASESBOARD_SLOT_2A:
@@ -202,12 +248,16 @@ bool AuxBoards::stop(SckBase* base, SensorType wichSensor)
 		case SENSOR_GASESBOARD_SLOT_3W:
 		case SENSOR_GASESBOARD_HUMIDITY:
 		case SENSOR_GASESBOARD_TEMPERATURE: 	return gasBoard.stop(); break;
+		#endif
 		case SENSOR_GROOVE_I2C_ADC: 		return grooveI2C_ADC.stop(); break;
 		case SENSOR_INA219_BUSVOLT:
 		case SENSOR_INA219_SHUNT:
 		case SENSOR_INA219_CURRENT:
 		case SENSOR_INA219_LOADVOLT: 		return ina219.stop(); break;
+		#ifndef MISC_DISABLE
 		case SENSOR_WATER_TEMP_DS18B20:		return waterTemp_DS18B20.stop(); break;
+		#endif
+		#ifndef ATLAS_DISABLE
 		case SENSOR_ATLAS_TEMPERATURE: 		return atlasTEMP.stop(); break;
 		case SENSOR_ATLAS_PH:			return atlasPH.stop();
 		case SENSOR_ATLAS_EC:
@@ -216,8 +266,11 @@ bool AuxBoards::stop(SckBase* base, SensorType wichSensor)
 		case SENSOR_ATLAS_EC_SG: 		return atlasEC.stop(); break;
 		case SENSOR_ATLAS_DO:
 		case SENSOR_ATLAS_DO_SAT: 		return atlasDO.stop(); break;
+		#endif
+		#ifndef CHIRP_DISABLE
 		case SENSOR_CHIRP_TEMPERATURE:
 		case SENSOR_CHIRP_MOISTURE:		return moistureChirp.stop(); break;
+		#endif
 		case SENSOR_EXT_A_PM_1:
 		case SENSOR_EXT_A_PM_25:
 		case SENSOR_EXT_A_PM_10:
@@ -237,17 +290,21 @@ bool AuxBoards::stop(SckBase* base, SensorType wichSensor)
 		case SENSOR_EXT_B_PN_5:
 		case SENSOR_EXT_B_PN_10: 		return pmSensorB.stop(base,this,wichSensor); break;
 		case SENSOR_PM_DALLAS_TEMP: 		return pmDallasTemp.stop(base,this,wichSensor); break;
+		#ifndef MISC_DISABLE
 		case SENSOR_DALLAS_TEMP: 		return dallasTemp.stop(); break;
+		#endif
 		case SENSOR_SHT31_TEMP:
 		case SENSOR_SHT31_HUM: 			return sht31.stop(); break;
 		case SENSOR_SHT35_TEMP:
 		case SENSOR_SHT35_HUM: 			return sht35.stop(); break;
+		#ifndef MISC_DISABLE
 		case SENSOR_RANGE_DISTANCE: 		return range.stop(); break;
 		case SENSOR_RANGE_LIGHT: 		return range.stop(); break;
 		case SENSOR_BME680_TEMPERATURE:		return bme680.stop(); break;
 		case SENSOR_BME680_HUMIDITY:		return bme680.stop(); break;
 		case SENSOR_BME680_PRESSURE:		return bme680.stop(); break;
 		case SENSOR_BME680_VOCS:		return bme680.stop(); break;
+		#endif
 		case SENSOR_GPS_FIX_QUALITY:
 		case SENSOR_GPS_LATITUDE:
 		case SENSOR_GPS_LONGITUDE:
@@ -271,30 +328,37 @@ bool AuxBoards::stop(SckBase* base, SensorType wichSensor)
 		case SENSOR_ADS1X15_4B_1:
 		case SENSOR_ADS1X15_4B_2:
 		case SENSOR_ADS1X15_4B_3: 		return ads4B.stop(); break;
+		#ifndef SCD30_DISABLE
 		case SENSOR_SCD30_CO2: 			return scd30.stop(base,SENSOR_SCD30_CO2,this); break;
 		case SENSOR_SCD30_TEMP: 		return scd30.stop(base,SENSOR_SCD30_TEMP,this); break;
 		case SENSOR_SCD30_HUM: 			return scd30.stop(base,SENSOR_SCD30_HUM,this); break;
+		#endif
 		case SENSOR_SCD4x_CO2: 			return scd4x.stop(base,SENSOR_SCD4x_CO2,this); break;
 		case SENSOR_SCD4x_TEMP: 		return scd4x.stop(base,SENSOR_SCD4x_TEMP,this); break;
 		case SENSOR_SCD4x_HUM: 			return scd4x.stop(base,SENSOR_SCD4x_HUM,this); break;
-		case SENSOR_WIND_DIR:			return wind.stop(base,this,SENSOR_WIND_DIR); break;
-		case SENSOR_WIND_SPEED:			return wind.stop(base,this,SENSOR_WIND_SPEED); break;
-		case SENSOR_RAIN_ACC:			return rain.stop(base,this,SENSOR_RAIN_ACC); break;
-		case SENSOR_RAIN_EVENTACC:		return rain.stop(base,this,SENSOR_RAIN_EVENTACC); break;
-		case SENSOR_RAIN_TOTALACC:		return rain.stop(base,this,SENSOR_RAIN_TOTALACC); break;
-		case SENSOR_RAIN_INTERVAL:		return rain.stop(base,this,SENSOR_RAIN_INTERVAL); break;
+		case SENSOR_WIND_DIR:			return windandrain.stop(base,this,SENSOR_WIND_DIR); break;
+		case SENSOR_WIND_SPEED:			return windandrain.stop(base,this,SENSOR_WIND_SPEED); break;
+		case SENSOR_RAIN_ACC:			return windandrain.stop(base,this,SENSOR_RAIN_ACC); break;
+		case SENSOR_RAIN_EVENTACC:		return windandrain.stop(base,this,SENSOR_RAIN_EVENTACC); break;
+		case SENSOR_RAIN_TOTALACC:		return windandrain.stop(base,this,SENSOR_RAIN_TOTALACC); break;
+		case SENSOR_RAIN_INTERVAL:		return windandrain.stop(base,this,SENSOR_RAIN_INTERVAL); break;
 		case SENSOR_GROVE_OLED: 		return groove_OLED.stop(); break;
 		default: break;
 	}
-
+	
 	return false;
 }
 
 void AuxBoards::getReading(SckBase* base, OneSensor *wichSensor)
 {
+	sprintf(base->outBuff,"AUX is reading: %s",base->sensors[wichSensor->type].title);
+	base->sckOut(PRIO_MED,true);
+
+	testMuxChanMap(base);
 	
 	wichSensor->state = 0;
 	switch (wichSensor->type) {
+		#ifndef GASBOARD_DISABLE
 		case SENSOR_GASESBOARD_SLOT_1A:	 	wichSensor->reading = String(gasBoard.getElectrode(gasBoard.Slot1.electrode_A)); return;
 		case SENSOR_GASESBOARD_SLOT_1W: 	wichSensor->reading = String(gasBoard.getElectrode(gasBoard.Slot1.electrode_W)); return;
 		case SENSOR_GASESBOARD_SLOT_2A: 	wichSensor->reading = String(gasBoard.getElectrode(gasBoard.Slot2.electrode_A)); return;
@@ -303,12 +367,16 @@ void AuxBoards::getReading(SckBase* base, OneSensor *wichSensor)
 		case SENSOR_GASESBOARD_SLOT_3W: 	wichSensor->reading = String(gasBoard.getElectrode(gasBoard.Slot3.electrode_W)); return;
 		case SENSOR_GASESBOARD_HUMIDITY: 	wichSensor->reading = String(gasBoard.getHumidity()); return;
 		case SENSOR_GASESBOARD_TEMPERATURE: 	wichSensor->reading = String(gasBoard.getTemperature()); return;
+		#endif
 		case SENSOR_GROOVE_I2C_ADC: 		wichSensor->reading = String(grooveI2C_ADC.getReading(base,this,wichSensor->type)); return;
 		case SENSOR_INA219_BUSVOLT: 		wichSensor->reading = String(ina219.getReading(base,this,wichSensor->type,ina219.BUS_VOLT)); return;
 		case SENSOR_INA219_SHUNT: 		wichSensor->reading = String(ina219.getReading(base,this,wichSensor->type,ina219.SHUNT_VOLT)); return;
 		case SENSOR_INA219_CURRENT: 		wichSensor->reading = String(ina219.getReading(base,this,wichSensor->type,ina219.CURRENT)); return;
 		case SENSOR_INA219_LOADVOLT: 		wichSensor->reading = String(ina219.getReading(base,this,wichSensor->type,ina219.LOAD_VOLT)); return;
+		#ifndef MISC_DISABLE
 		case SENSOR_WATER_TEMP_DS18B20:		wichSensor->reading = String(waterTemp_DS18B20.getReading(base,this,wichSensor->type)); return;
+		#endif
+		#ifndef ATLAS_DISABLE
 		case SENSOR_ATLAS_TEMPERATURE: 		if (atlasTEMP.getReading(base,this,wichSensor->type)) 	{ wichSensor->reading = String(atlasTEMP.newReading[0]); return; } break;
 		case SENSOR_ATLAS_PH:			if (atlasPH.getReading(base,this,wichSensor->type)) 	{ wichSensor->reading = String(atlasPH.newReading[0]); return; } break;
 		case SENSOR_ATLAS_EC:			if (atlasEC.getReading(base,this,wichSensor->type)) 	{ wichSensor->reading = String(atlasEC.newReading[0]); return; } break;
@@ -317,10 +385,13 @@ void AuxBoards::getReading(SckBase* base, OneSensor *wichSensor)
 		case SENSOR_ATLAS_EC_SG:		if (atlasEC.getReading(base,this,wichSensor->type)) 	{ wichSensor->reading = String(atlasEC.newReading[3]); return; } break;
 		case SENSOR_ATLAS_DO:			if (atlasDO.getReading(base,this,wichSensor->type)) 	{ wichSensor->reading = String(atlasDO.newReading[0]); return; } break;
 		case SENSOR_ATLAS_DO_SAT:		if (atlasDO.getReading(base,this,wichSensor->type)) 	{ wichSensor->reading = String(atlasDO.newReading[1]); return; } break;
+		#endif
+		#ifndef CHIRP_DISABLE
 		case SENSOR_CHIRP_MOISTURE_RAW:		if (moistureChirp.getReading(base,SENSOR_CHIRP_MOISTURE_RAW,this)) { wichSensor->reading = String(moistureChirp.raw); return; } break;
 		case SENSOR_CHIRP_MOISTURE:		if (moistureChirp.getReading(base,SENSOR_CHIRP_MOISTURE,this)) { wichSensor->reading = String(moistureChirp.moisture); return; } break;
 		case SENSOR_CHIRP_TEMPERATURE:		if (moistureChirp.getReading(base,SENSOR_CHIRP_TEMPERATURE,this)) { wichSensor->reading = String(moistureChirp.temperature); return; } break;
 		case SENSOR_CHIRP_LIGHT:		if (moistureChirp.getReading(base,SENSOR_CHIRP_LIGHT,this)) { wichSensor->reading = String(moistureChirp.light); return; } break;
+		#endif
 		case SENSOR_EXT_A_PM_1: 		if (pmSensorA.update(base,this,wichSensor->type)) { wichSensor->reading = String(pmSensorA.pm1); return; } break;
 		case SENSOR_EXT_A_PM_25: 		if (pmSensorA.update(base,this,wichSensor->type)) { wichSensor->reading = String(pmSensorA.pm25); return; } break;
 		case SENSOR_EXT_A_PM_10: 		if (pmSensorA.update(base,this,wichSensor->type)) { wichSensor->reading = String(pmSensorA.pm10); return; } break;
@@ -340,17 +411,21 @@ void AuxBoards::getReading(SckBase* base, OneSensor *wichSensor)
 		case SENSOR_EXT_B_PN_5:                 if (pmSensorB.update(base,this,wichSensor->type)) { wichSensor->reading = String(pmSensorB.pn5); return; } break;
 		case SENSOR_EXT_B_PN_10: 		if (pmSensorB.update(base,this,wichSensor->type)) { wichSensor->reading = String(pmSensorB.pn10); return; } break;
 		case SENSOR_PM_DALLAS_TEMP: 		wichSensor->reading = String(pmDallasTemp.getReading(base,this,wichSensor->type)); return;
+		#ifndef MISC_DISABLE
 		case SENSOR_DALLAS_TEMP: 		if (dallasTemp.getReading()) 			{ wichSensor->reading = String(dallasTemp.reading); return; } break;
+		#endif
 		case SENSOR_SHT31_TEMP: 		if (sht31.getReading()) 				{ wichSensor->reading = String(sht31.temperature); return; } break;
 		case SENSOR_SHT31_HUM: 			if (sht31.getReading()) 				{ wichSensor->reading = String(sht31.humidity); return; } break;
 		case SENSOR_SHT35_TEMP: 		if (sht35.getReading()) 				{ wichSensor->reading = String(sht35.temperature); return; } break;
 		case SENSOR_SHT35_HUM: 			if (sht35.getReading()) 				{ wichSensor->reading = String(sht35.humidity); return; } break;
+		#ifndef MISC_DISABLE
 		case SENSOR_RANGE_DISTANCE: 		if (range.getReading(base,this,SENSOR_RANGE_DISTANCE)) 	{ wichSensor->reading = String(range.readingDistance); return; } break;
 		case SENSOR_RANGE_LIGHT: 		if (range.getReading(base,this,SENSOR_RANGE_LIGHT)) 	{ wichSensor->reading = String(range.readingLight); return; } break;
 		case SENSOR_BME680_TEMPERATURE:		if (bme680.getReading(base,this,wichSensor->type)) 			{ wichSensor->reading = String(bme680.temperature); return; } break;
 		case SENSOR_BME680_HUMIDITY:		if (bme680.getReading(base,this,wichSensor->type)) 			{ wichSensor->reading = String(bme680.humidity); return; } break;
 		case SENSOR_BME680_PRESSURE:		if (bme680.getReading(base,this,wichSensor->type)) 			{ wichSensor->reading = String(bme680.pressure); return; } break;
 		case SENSOR_BME680_VOCS:		if (bme680.getReading(base,this,wichSensor->type)) 			{ wichSensor->reading = String(bme680.VOCgas); return; } break;
+		#endif
 		case SENSOR_GPS_FIX_QUALITY: 		if (gps.getReading(base,this, SENSOR_GPS_FIX_QUALITY)) 	{ wichSensor->reading = String(gps.r.fixQuality); return; } break;
 		case SENSOR_GPS_LATITUDE: 		if (gps.getReading(base, this,SENSOR_GPS_LATITUDE)) 		{ wichSensor->reading = String(gps.r.latitude, 6); return; } break;
 		case SENSOR_GPS_LONGITUDE: 		if (gps.getReading(base, this,SENSOR_GPS_LONGITUDE)) 	{ wichSensor->reading = String(gps.r.longitude, 6); return; } break;
@@ -374,21 +449,31 @@ void AuxBoards::getReading(SckBase* base, OneSensor *wichSensor)
 		case SENSOR_ADS1X15_4B_1: 		if (ads4B.getReading(base,this,1,wichSensor->type)) 			{ wichSensor->reading = String(ads4B.reading, 6); return;} break;
 		case SENSOR_ADS1X15_4B_2: 		if (ads4B.getReading(base,this,2,wichSensor->type)) 			{ wichSensor->reading = String(ads4B.reading, 6); return;} break;
 		case SENSOR_ADS1X15_4B_3: 		if (ads4B.getReading(base,this,3,wichSensor->type)) 			{ wichSensor->reading = String(ads4B.reading, 6); return;} break;
+		#ifndef SCD30_DISABLE		
 		case SENSOR_SCD30_CO2: 			if (scd30.getReading(base,SENSOR_SCD30_CO2,this)) 				{ wichSensor->reading = String(scd30.co2); return; } break;
 		case SENSOR_SCD30_TEMP: 		if (scd30.getReading(base,SENSOR_SCD30_TEMP,this)) 				{ wichSensor->reading = String(scd30.temperature); return; } break;
 		case SENSOR_SCD30_HUM: 			if (scd30.getReading(base,SENSOR_SCD30_HUM,this)) 				{ wichSensor->reading = String(scd30.humidity); return; } break;
-		case SENSOR_SCD4x_CO2: 			if (scd4x.getReading(base,SENSOR_SCD4x_CO2,this)) 				{ wichSensor->reading = String(scd4x.co2); return; } break;
+		#endif
+		case SENSOR_SCD4x_CO2: 			if (scd4x.getReading(base,SENSOR_SCD4x_CO2,this)) 				{ 
+			wichSensor->reading = String(scd4x.co2); 
+			sprintf(base->outBuff,"CO2 reading (2) (float) %i",scd4x.co2);
+			base->sckOut(PRIO_MED,true);
+			return; 
+			
+			} break;
 		case SENSOR_SCD4x_TEMP: 		if (scd4x.getReading(base,SENSOR_SCD4x_TEMP,this)) 				{ wichSensor->reading = String(scd4x.temperature); return; } break;
 		case SENSOR_SCD4x_HUM: 			if (scd4x.getReading(base,SENSOR_SCD4x_HUM,this)) 				{ wichSensor->reading = String(scd4x.humidity); return; } break;
-		case SENSOR_WIND_DIR:			if( wind.update(base,this,SENSOR_WIND_DIR))				{ wichSensor->reading = wind.windDir; return; } break;
-		case SENSOR_WIND_SPEED:			if( wind.update(base,this,SENSOR_WIND_SPEED))				{ wichSensor->reading = wind.windSpeed; return; } break;
-		case SENSOR_RAIN_ACC:			if( rain.update(base,this,SENSOR_RAIN_ACC))				{ wichSensor->reading = rain.rainAcc; return; } break;
-		case SENSOR_RAIN_EVENTACC:		if( rain.update(base,this,SENSOR_RAIN_EVENTACC))				{ wichSensor->reading = rain.rainEventAcc; return; } break;
-		case SENSOR_RAIN_TOTALACC:		if( rain.update(base,this,SENSOR_RAIN_TOTALACC))				{ wichSensor->reading = rain.rainTotalAcc; return; } break;
-		case SENSOR_RAIN_INTERVAL:		if( rain.update(base,this,SENSOR_RAIN_INTERVAL))				{ wichSensor->reading = rain.rainIntAcc; return; } break;
+		case SENSOR_WIND_DIR:			if( windandrain.update(base,this,SENSOR_WIND_DIR))				{ wichSensor->reading = windandrain.windDir;return; } break;
+		case SENSOR_WIND_SPEED:			if( windandrain.update(base,this,SENSOR_WIND_SPEED))				{ wichSensor->reading = windandrain.windSpeed; return; } break;
+		case SENSOR_RAIN_ACC:			if( windandrain.update(base,this,SENSOR_RAIN_ACC))				{ wichSensor->reading = windandrain.rainAcc; return; } break;
+		case SENSOR_RAIN_EVENTACC:		if( windandrain.update(base,this,SENSOR_RAIN_EVENTACC))				{ wichSensor->reading = windandrain.rainEventAcc; return; } break;
+		case SENSOR_RAIN_TOTALACC:		if( windandrain.update(base,this,SENSOR_RAIN_TOTALACC))				{ wichSensor->reading = windandrain.rainTotalAcc; return; } break;
+		case SENSOR_RAIN_INTERVAL:		if( windandrain.update(base,this,SENSOR_RAIN_INTERVAL))				{ wichSensor->reading = windandrain.rainIntAcc; return; } break;
 
 		default: break;
 	}
+	sprintf(base->outBuff,"AUX did not read from: %s",base->sensors[wichSensor->type].title);
+	base->sckOut(PRIO_MED,true);
 	wichSensor->reading = "null";
 	wichSensor->state = -1;
 }
@@ -397,6 +482,7 @@ bool AuxBoards::getBusyState(SckBase* base,SensorType wichSensor)
 {
 
 	switch(wichSensor) {
+		#ifndef ATLAS_DISABLE
 		case SENSOR_ATLAS_TEMPERATURE:  return atlasTEMP.getBusyState(base, this,wichSensor); break;
 		case SENSOR_ATLAS_PH: 		return atlasPH.getBusyState(base,this,wichSensor); break;
 		case SENSOR_ATLAS_EC:
@@ -405,6 +491,7 @@ bool AuxBoards::getBusyState(SckBase* base,SensorType wichSensor)
 		case SENSOR_ATLAS_EC_SG: 	return atlasEC.getBusyState(base,this,wichSensor); break;
 		case SENSOR_ATLAS_DO:
 		case SENSOR_ATLAS_DO_SAT: 	return atlasDO.getBusyState(base,this,wichSensor); break;
+		#endif
 		default: return false; break;
 	}
 }
@@ -412,6 +499,7 @@ bool AuxBoards::getBusyState(SckBase* base,SensorType wichSensor)
 String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 {
 	switch(wichSensor) {
+		#ifndef GASBOARD_DISABLE
 		case SENSOR_GASESBOARD_SLOT_1A:
 		case SENSOR_GASESBOARD_SLOT_1W:
 		case SENSOR_GASESBOARD_SLOT_2A:
@@ -484,7 +572,10 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 
 			break;
 
-		} case SENSOR_ATLAS_PH:
+		} 
+		#endif
+		#ifndef ATLAS_DISABLE
+		case SENSOR_ATLAS_PH:
 		case SENSOR_ATLAS_EC:
 		case SENSOR_ATLAS_EC_TDS:
 		case SENSOR_ATLAS_EC_SAL:
@@ -531,7 +622,10 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 			}
 			break;
 
-		} case SENSOR_CHIRP_MOISTURE_RAW:
+		}
+		#endif 
+		#ifndef CHIRP_DISABLE
+		case SENSOR_CHIRP_MOISTURE_RAW:
 		case SENSOR_CHIRP_MOISTURE:
 		case SENSOR_CHIRP_TEMPERATURE:
 		case SENSOR_CHIRP_LIGHT: {
@@ -542,7 +636,7 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 			} else if (command.startsWith("reset")) {
 
 				for(uint8_t address = 1; address < 127; address++ ) {
-					if ( testI2C(base,address,moistureChirp.localPortNum,wichSensor,true)) {
+					if (openChannel,base,address,moistureChirp.localPortNum,true)) {
 						auxWire.beginTransmission(address);
 
 						if (auxWire.endTransmission() == 0) {
@@ -591,7 +685,9 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 			else return F("Unrecognized command!! please try again...");
 			break;
 
-		} case SENSOR_ADS1X15_48_0:
+		}
+		#endif 
+		case SENSOR_ADS1X15_48_0:
 		case SENSOR_ADS1X15_48_1:
 		case SENSOR_ADS1X15_48_2:
 		case SENSOR_ADS1X15_48_3: {
@@ -744,6 +840,7 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 #endif
 			break;
 		}
+		#ifndef SCD30_DISABLE
 		case SENSOR_SCD30_CO2:
 		case SENSOR_SCD30_TEMP:
 		case SENSOR_SCD30_HUM: {
@@ -803,7 +900,9 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 			}
 
 
-		} case SENSOR_SCD4x_CO2:
+		} 
+		#endif
+		case SENSOR_SCD4x_CO2:
 		case SENSOR_SCD4x_TEMP:
 		case SENSOR_SCD4x_HUM: {
 			if (command.startsWith("interval")) {
@@ -895,22 +994,28 @@ void AuxBoards::plot(SckBase* base,SensorType wichSensor,String value, const cha
 
 uint8_t AuxBoards::restartTCAMux() {
 
-	I2C_MuxChannel mc=v_I2CMuxChannels[0];
-	TCA.begin(auxWire,mc.addr);
-	delay(1);
-	return TCA.readStatus();
+	/*
+	NOTES: There may be issues with the TCA Mux; if it happens that the I2C bus is busy and the 
+	channel switching request does not get heard;
+	*/
+	TCA.begin(auxWire,muxAddress.b);
+	delayMicroseconds(20);
+	TCA.closeAll();
+	delayMicroseconds(20);
+	return TCA.readStatus();		// should return 0 = all channels are closed
 
 }
-// this  performs a lookup of the  address in the vector array; info
-// is discovered only once; (Faster) and low overhead.
+// this  performs a lookup of the  address in the v_I2CMuxChannels array; 
+// this info is discovered only once; (Faster) and low overhead.
+// although there is an argument that it ought to be refreshed when i2c command is run from the UI Command line
 // NOTE: this function assumes that a specified address is found on only one channel.
 // if there are multiple instances it will return the first one found
 uint8_t AuxBoards::findDeviceChan(SckBase* base,byte address, SensorType wichSensor,bool openChan,bool exclusive) {
 	uint32_t iteration=0;
 	uint8_t i;
 	uint8_t currchan;
-	sprintf(base->outBuff,"Finding a Channel for %s device",base->sensors[wichSensor].title);
-	base->sckOut();
+	//sprintf(base->outBuff,"Finding a Channel for %s device",base->sensors[wichSensor].title);
+	//base->sckOut(PRIO_LOW,true);
 	if (address != 0x00) {
 		for (i = 0; i < I2CMUX_MAX_SENSORS; i++) {	// i is a pointer to vector members
 			if (iteration >= 15) break;					// for some reason we have seen this loop exceeding the iteration upper bound. Memory corruption ?
@@ -947,15 +1052,17 @@ uint8_t AuxBoards::tcaDiscoverAMux(SckBase* base,TwoWire *_Wire) {
 	uint8_t address;
 	for( address = 0x70; address < 0x78; address++ ) {	
 		if (!I2Cdetect(_Wire, address)) {
+			sprintf(base->outBuff, "An I2C Mux was NOT discovered at address (0x%02x) ", address);
+			base->sckOut(PRIO_MED,true);
 		} else {
 			sprintf(base->outBuff, "An I2C Mux was discovered at address (0x%02x) ", address);
 			base->sckOut(PRIO_MED,true);
 			return address;
 		}
 	}
-	base->sckOut("An I2C Mux was NOT discovered",PRIO_MED,true);
+	//base->sckOut("An I2C Mux was NOT discovered",PRIO_LOW,true);
 	// if nothing found
-	return 0x00;
+	return 0;
 }
 bool AuxBoards::buildMuxChannelMap(SckBase* base,TwoWire *_Wire) {
 	/*
@@ -966,40 +1073,37 @@ bool AuxBoards::buildMuxChannelMap(SckBase* base,TwoWire *_Wire) {
 	*/
 	
 	uint8_t address;
-	uint8_t muxAddress;
 	uint8_t chan;
 	bool muxMode=false;
 	//uint8_t status=0;
 	byte muxchan;
 	AUXI2C_MUXCONNECTED_DEVICES=0;
-	muxAddress=tcaDiscoverAMux(base,_Wire);
 	// the mux is discovered first; it must be the very first entry in the map; so it is more easily found if needed.
-	if (muxAddress != 0x00) {
-		base->sckOut("Building the map", PRIO_MED,true);
+	if (muxAddress.i != 0) {
+		//base->sckOut("Building the map", PRIO_MED,true);
 		// the MUX address is recorded as the first entry in the map, and it is connected direct to the AuxBux (channel 0).
-		v_I2CMuxChannels[0].addr=muxAddress;
+		v_I2CMuxChannels[0].addr=muxAddress.b;
 		v_I2CMuxChannels[0].chan=0x00;
 		AUXI2C_MUXCONNECTED_DEVICES++;
 		muxMode=true;	
 
 		// 2. loop through each port and scan for I2C addresses connected to that port
 		// add each address and channel as a pair (using I2C_MuxChannel struct ) to the vector array
-		base->sckOut("looping thru the channels", PRIO_MED,true);
+		//base->sckOut("looping thru the channels", PRIO_LOW,true);
 		uint8_t i=1;
-		// for (chan=1; chan < 9; chan++) {		// not checking first entry in the channel array (this is the raw AuxBus)
-		for (chan=1; chan < 9; chan++) {		//  checking first entry in the channel array (this is the raw AuxBus)
+		for (chan=1; chan < 9; chan++) {		//  NOT checking first entry in the channel array (this is the raw AuxBus)
 			muxchan=channelAry[chan];
 			TCA.closeAll();
-			delay(1);
+			delayMicroseconds(10);
 			TCA.openChannel(muxchan);		// open the channel
-			delay(1);
-			sprintf(base->outBuff,"Checking Port: 0x%02x status: 0x%02x",muxchan,TCA.readStatus());
-			base->sckOut(PRIO_MED,true);
+			delayMicroseconds(10);
+			//sprintf(base->outBuff,"Checking Port: 0x%02x status: 0x%02x",muxchan,TCA.readStatus());
+			//base->sckOut(PRIO_LOW,true);
 			for (address=0x01; address<=0x7f; address++) {
-				if (address != muxAddress) {
+				if (address != muxAddress.i) {
 					if (I2Cdetect(_Wire, address) && checkMuxMapEntryUnique(address)) {
-						sprintf(base->outBuff,"Adding addr 0x%02x to chan 0x%02x",address,chan);
-						base->sckOut(PRIO_MED,true);
+						//sprintf(base->outBuff,"Adding addr 0x%02x to chan 0x%02x",address,chan);
+						//base->sckOut(PRIO_MED,true);
 						v_I2CMuxChannels[i].addr=address;
 						v_I2CMuxChannels[i].chan=muxchan;
 						AUXI2C_MUXCONNECTED_DEVICES++;
@@ -1008,10 +1112,8 @@ bool AuxBoards::buildMuxChannelMap(SckBase* base,TwoWire *_Wire) {
 				}
 			}
 		}
-		sprintf(base->outBuff, "The I2C Mux channel map has (%u) entries\r\n", AUXI2C_MUXCONNECTED_DEVICES);
-		base->sckOut();
-	} else {
-		base->sckOut("I2C MUX is not found on Aux Bus");
+		sprintf(base->outBuff, "The I2C Mux channel map has (%u) entries", AUXI2C_MUXCONNECTED_DEVICES);
+		base->sckOut(PRIO_MED,true);
 	}
 	return muxMode;
 }
@@ -1025,44 +1127,80 @@ bool AuxBoards::checkMuxMapEntryUnique(uint8_t address){
 }
 uint8_t AuxBoards::listMuxChanMap(SckBase* base) {
 	
-	base->sckOut("::List of Device Addresses found on the AuxBus I2c MUX::\r\n");
+	base->sckOut("::List of Device Addresses found on the AuxBus I2c MUX::\r\n",PRIO_MED,true);
+
+	testMuxChanMap(base);
+	
 	I2C_MuxChannel mc;
 	uint8_t ctr=0; 
-	uint8_t nctr=0;
-	for (uint8_t i = 0; i < I2CMUX_MAX_SENSORS; i++) {	// i is a pointer to vector members
+	for (uint8_t i = 0; i < I2CMUX_MAX_SENSORS; i++) {	// i is a index to array members
 		mc=v_I2CMuxChannels[i];
 		if (mc.addr !=0x00) {
 			ctr++;
-			sprintf(base->outBuff, "address: 0x%02x found on MUX Port: 0x%02x",mc.addr,mc.chan );
-			base->sckOut();
-			
-		} else {
-			nctr++;
+			//sprintf(base->outBuff, "address: 0x%02x found on MUX Port: 0x%02x",mc.addr,mc.chan );
+			//base->sckOut(PRIO_MED,true);
 		}
-		
 	}
-	//sprintf(base->outBuff, "There are (%u) entries in the map\r\n", ctr,nctr );
-	//base->sckOut();
 	return ctr;
+}
+
+void AuxBoards::testMuxChanMap(SckBase* base) {
+	
+	base->sckOut("::testing connectivity to each Address found on the AuxBus I2c MUX::\r\n",PRIO_MED,true);
+	I2C_MuxChannel mc;
+	//byte chan=0x00;
+	byte status=TCA.readStatus();
+	auxWire.endTransmission();
+	auxWire.setClock(100000);
+
+	uint8_t ctr=0; 
+	uint8_t i = 0;
+	for ( i = 0; i < I2CMUX_MAX_SENSORS; i++) {	// i is a index to array members
+		mc=v_I2CMuxChannels[i];
+		if (mc.addr !=0x00) {
+			ctr++;
+			sprintf(base->outBuff, "Testing address: 0x%02x on MUX Port: 0x%02x",mc.addr,mc.chan );
+			base->sckOut(PRIO_MED,false);
+			status=TCA.readStatus();
+			if (status != mc.chan) {
+				TCA.closeAll();
+			}
+			TCA.openChannel(mc.chan);
+			auxWire.beginTransmission(mc.addr);
+			byte error = auxWire.endTransmission();
+			if (error == 0) {
+				base->sckOut(":: OK",PRIO_MED,true);
+			} else {
+				base->sckOut(":: NOT OK",PRIO_MED,true);
+			}
+		}
+	}
+	return;
 }
 uint8_t AuxBoards::countTCAOpenChannels(SckBase* base) {
 	// count the number of mux channels that are open
-	uint8_t status=TCA.readStatus();
+	byte status=0x0f;
 	uint8_t chanidx=0;
 	byte muxchan=0x00;
 	byte test=0x00;
 	uint8_t openchancount=0;
-	if (status != 0xff) {
+
+	status=TCA.readStatus();
+	if (status != 0x0f) {
 		for (chanidx=1; chanidx < 9; chanidx++) {	
 			muxchan=channelAry[chanidx];
 			test= status & muxchan;
 			if (test > 0x00) {			// that channel is open
+				sprintf(base->outBuff,"Channel 0x%02x is open",muxchan);
+				base->sckOut(PRIO_MED,true);
 				openchancount++;
 			}
 		}
 	} else {
 		openchancount=8;
 	}
+	sprintf(base->outBuff,"There are %i open channels",openchancount);
+	base->sckOut(PRIO_MED,true);
 	return (openchancount);
 
 }
@@ -1076,13 +1214,69 @@ I2C_MuxChannel AuxBoards::getMuxChannel(uint8_t address) {
 	}
 	return mc;
 }
+bool AuxBoards::openChannel(SckBase* base,uint8_t address, uint8_t channel,bool exclusive) {
+	// 1/. Check to see if the requested channel is already open; if so return true
+	uint8_t status=0x0f;
+	uint8_t openchannelcount=0;
+
+	status = TCA.readStatus();
+	if (((status & channel) > 0 ) && !exclusive) {
+		sprintf(base->outBuff,"Channel 0x%02x is already open",channel);
+		base->sckOut(PRIO_LOW,true);
+		return true;
+	}
+
+	// so, requested channel is not already open.
+	// 2/. if exclusive is requested, then close open channels and open the requested channel
+	if (exclusive) {
+		TCA.closeAll();
+		delayMicroseconds(10);
+		TCA.openChannel(channel);
+		// check to see if it was opened:
+		status=TCA.readStatus();
+		delayMicroseconds(10);
+		if ((status & channel) > 0) {
+			sprintf(base->outBuff,"Channel 0x%02x is now open exclusively",channel);
+			base->sckOut(PRIO_MED,true);
+			return true;
+		}
+	}
+
+	// exclusive is not requested.  But maximum 3 can be open at one time.<-- local rulez is still rulez
+	// this rule has been established by testing.  It has been found that Too many open channels will likely
+	// destabilise the bus.
+
+	// 3/. count how many channels are open.  If N = 3 then close all and open the one requested
+	// otherwise just open the one requested
+	openchannelcount=countTCAOpenChannels(base);
+	if (openchannelcount >= 2) {
+		TCA.closeAll();
+		delayMicroseconds(10);
+	}
+	TCA.openChannel(channel);
+	delayMicroseconds(10);
+	status=TCA.readStatus();
+	if ((status & channel) > 0) {
+		sprintf(base->outBuff,"Channel 0x%02x is now also open",channel);
+		base->sckOut(PRIO_MED,true);
+		return true;
+	} else {
+		return false;
+	}
+
+	// NOTE: it is not the job of this function to confirm that the requesting device can actually communicate thru the mux;
+	// that must be verified by the device itself
+
+}
+/*
 bool AuxBoards::testI2C(SckBase* base,uint8_t address, uint8_t channel,SensorType wichSensor,bool exclusive) {
+	
 
 	auxWire.beginTransmission(address);
 	byte error = auxWire.endTransmission();
-
+	bool status=0x00;
 	//uint8_t ctr=0;
-	uint8_t status=0x0f;
+	
 	uint8_t openchannelcount=0;
 	if (error == 0) {
 		//base->sckOut("I2C connection verified (no need to switch mux)");
@@ -1132,12 +1326,13 @@ bool AuxBoards::testI2C(SckBase* base,uint8_t address, uint8_t channel,SensorTyp
 		//if (ctr > 0) base->sckOut("final:I2C connection verified");
 		return true;
 	} else if (error == 4) {
-		base->sckOut("I2C connection UNKNOWN ERROR");
-	} else {
-		base->sckOut("I2C connection failed: bailing out");
+		base->sckOut("I2C connection UNKNOWN ERROR",PRIO_LOW,true);
+	//} else {
+	//	base->sckOut("I2C connection failed: bailing out",PRIO_LOW,true);
 	}
 	return false;	
 }
+*/
 bool GrooveI2C_ADC::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	
@@ -1167,7 +1362,7 @@ bool GrooveI2C_ADC::stop()
 float GrooveI2C_ADC::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return 0;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return 0;
@@ -1230,7 +1425,7 @@ float INA219::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor
 {
 	//base->sckOut("INA219 getreading request");
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return 0;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return 0;
@@ -1299,7 +1494,7 @@ bool Groove_OLED::stop()
 void Groove_OLED::print(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,char *payload)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -1336,7 +1531,7 @@ void Groove_OLED::print(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,
 void Groove_OLED::printLine(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,char *payload, uint8_t size)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -1372,7 +1567,7 @@ void Groove_OLED::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor
 	//base->sckOut();
 
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -1402,7 +1597,7 @@ void Groove_OLED::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor
 void Groove_OLED::drawBar(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -1472,7 +1667,7 @@ void Groove_OLED::drawBar(SckBase* base,AuxBoards* auxBoard,SensorType wichSenso
 void Groove_OLED::drawError(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,errorType wichError)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -1538,7 +1733,7 @@ void Groove_OLED::drawError(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 void Groove_OLED::drawSetup(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -1571,7 +1766,7 @@ void Groove_OLED::drawSetup(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 void Groove_OLED::displayReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -1669,7 +1864,7 @@ void Groove_OLED::displayReading(SckBase* base,AuxBoards* auxBoard,SensorType wi
 void Groove_OLED::plot(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,String value, const char *title, const char *unit)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -1742,7 +1937,7 @@ void Groove_OLED::plot(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,S
 void Groove_OLED::remap(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,float newMaxY)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -1764,6 +1959,7 @@ void Groove_OLED::remap(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,
 
 	maxY = newMaxY;
 }
+#ifndef MISC_DISABLE
 bool WaterTemp_DS18B20::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	// If we are using a I2C port MUX; then the Port must be enabled prior to calling this library
@@ -1796,7 +1992,7 @@ bool WaterTemp_DS18B20::stop()
 float WaterTemp_DS18B20::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return 0;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return 0;
@@ -1845,6 +2041,8 @@ float WaterTemp_DS18B20::getReading(SckBase* base,AuxBoards* auxBoard,SensorType
 
 	return 0;
 }
+#endif
+#ifndef ATLAS_DISABLE
 bool Atlas::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 
@@ -1919,7 +2117,7 @@ bool Atlas::stop()
 bool Atlas::getReading(SckBase* base, AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -1935,7 +2133,7 @@ bool Atlas::getReading(SckBase* base, AuxBoards* auxBoard,SensorType wichSensor)
 bool Atlas::getBusyState(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	}
@@ -2025,7 +2223,7 @@ bool Atlas::getBusyState(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor
 void Atlas::goToSleep(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -2037,7 +2235,7 @@ void Atlas::goToSleep(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 bool Atlas::sendCommand(SckBase* base,char* command,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2065,7 +2263,7 @@ bool Atlas::sendCommand(SckBase* base,char* command,AuxBoards* auxBoard,SensorTy
 bool Atlas::tempCompensation(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2106,7 +2304,7 @@ bool Atlas::tempCompensation(SckBase* base,AuxBoards* auxBoard,SensorType wichSe
 uint8_t Atlas::getResponse(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2145,6 +2343,8 @@ uint8_t Atlas::getResponse(SckBase* base,AuxBoards* auxBoard,SensorType wichSens
 		}
 	}
 }
+#endif
+#ifndef CHIRP_DISABLE
 bool Moisture::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	// If we are using a I2C port MUX; then the Port must be enabled prior to calling this library
@@ -2177,7 +2377,7 @@ bool Moisture::stop()
 bool Moisture::getReading(SckBase* base,SensorType wichSensor,AuxBoards* auxBoard)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2223,7 +2423,7 @@ bool Moisture::getReading(SckBase* base,SensorType wichSensor,AuxBoards* auxBoar
 uint8_t Moisture::getVersion(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return 0;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return 0;
@@ -2233,7 +2433,7 @@ uint8_t Moisture::getVersion(SckBase* base,AuxBoards* auxBoard,SensorType wichSe
 void Moisture::sleep(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return ;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return ;
@@ -2242,11 +2442,11 @@ void Moisture::sleep(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 }
 bool Moisture::resetAddress(SckBase* base,int currentAddress,AuxBoards* auxBoard,SensorType wichSensor)
 {
-	if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+	if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 		sprintf(base->outBuff, "(Moisture::resetAddress) device inaccessible at Address: 0x%02x",currentAddress);
 		base->sckOut();
 		
-	} else if ( !auxBoard->testI2C(base,0x20,localPortNum,wichSensor,false)) {
+	} else if ( !auxBoard->openChannel(base,0x20,localPortNum,false)) {
 		sprintf(base->outBuff, "(Moisture::resetAddress) device inaccessible at Address: 0x%02x",0x20);
 		base->sckOut();
 		return false;
@@ -2255,6 +2455,8 @@ bool Moisture::resetAddress(SckBase* base,int currentAddress,AuxBoards* auxBoard
 	chirp.changeSensor(currentAddress, true);
 	return chirp.setAddress(0x20, true);
 }
+#endif
+
 // PMSensor is Class used to communicate with PM Board #1 to read and control 2 x PM sensors AND DALLAS TEMP AND (SCKGPS) connected to it.
 bool PMsensor::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
@@ -2283,13 +2485,13 @@ bool PMsensor::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 
 	if (result == 0) failed = true;
 	else started = true;
-
+	
 	return result;
 }
 bool PMsensor::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2305,7 +2507,7 @@ bool PMsensor::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 bool PMsensor::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2351,29 +2553,57 @@ bool PMsensor::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 // PM2Sensor is Class used to communicate with PM Board #2 to read and control ANEMOMETER AND RAIN Gauge connected to it via UART ports.
 bool PM2sensor::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
-	if (started) return true;
-	// If we are using a I2C port MUX; then the Port must be enabled prior to calling this library (using any function that uses I2c)
+	//sprintf(base->outBuff,"PM2sensor start requested for measurement: %s", base->sensors[wichSensor].title);
+	//base->sckOut(PRIO_MED,true);
+	/* 
+	
+	BIG NOTE:  The device takes around 950 mS to go through the setup routine.
+
+	If this ::start function is executed soon after power up of the system as a whole; then
+	not enough time may have elapsed for it to complete setup.
+	And the consequence is that the first one or two commands (WIND_START etc)
+	may fail.
+
+	Thus, first time around; it is necessary for us to include a delay right at the start; please do not remove it.
+
+	*/
+	if (!started) {
+		delay(980);
+	}  else {return true;}
+
+	// If we are using a I2C port MUX; then the Port must be enabled prior to I2C communication
 	if (auxBoard->TCAMUXMODE && deviceAddress != 0x00) {
 		localPortNum=auxBoard->findDeviceChan(base,deviceAddress,wichSensor, true,false);
 		if (localPortNum > TCA_CHANNEL_7) {
-			
 			localPortNum=0x00;
+			//base->sckOut("I2C Port out of range");
 			return false;	// the device was not found 
-		} else {			// even if we find a port its no good if we cannt communicate with the device
-			if (!I2Cdetect(&auxWire, deviceAddress)) return false;
+		} else if (!I2Cdetect(&auxWire, deviceAddress)) {
+			//base->sckOut("Device not detected on the bus");
+			return false;
+		//} else {
+			//base->sckOut("A Mux port was identified and verified", PRIO_MED,true);
 		}
-	} else {
-		if (!I2Cdetect(&auxWire, deviceAddress) || failed) return false;
+	} else if (!I2Cdetect(&auxWire, deviceAddress)) {
+		return false;
+	//} else {
+		//base->sckOut("the device is connected to Aux Bus and working", PRIO_MED,true);
 	}
 
+	//sprintf(base->outBuff,"start requested for #: %i", wichSensor);
+	//base->sckOut(PRIO_MED,false);
+	//sprintf(base->outBuff," aka: %s", base->sensors[wichSensor].title);
+	//base->sckOut(PRIO_MED,true);
+
+	//ReadingSize readingsize = getReadingSize(wichSensor);
+
+	
 	auxWire.beginTransmission(deviceAddress);
 	switch (wichSensor) {
 		// Calypso ULP Anemometer
 		case SENSOR_WIND_DIR: 
 		case SENSOR_WIND_SPEED: {
-			if (_slot==WIND){
-				auxWire.write(COMM_START_WIND);
-			}
+			auxWire.write(COMM_START_WIND);
 			break;
 		}
 
@@ -2382,9 +2612,7 @@ bool PM2sensor::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 		case SENSOR_RAIN_EVENTACC: 
 		case SENSOR_RAIN_TOTALACC: 
 		case SENSOR_RAIN_INTERVAL: {
-			if (_slot==RAIN){
-				auxWire.write(COMM_START_RAIN);
-			}
+			auxWire.write(COMM_START_RAIN);
 			break;
 		}
 		// unrecognised sensor
@@ -2392,22 +2620,61 @@ bool PM2sensor::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 			break;
 		}
 	}
-	auxWire.endTransmission();
-	auxWire.requestFrom(deviceAddress, 1);	// request acknowledgement
-	while (!auxWire.available()) {
-		delayMicros(5);
+	bool error = auxWire.endTransmission();
+	uint32_t timer=micros();
+	uint32_t timeout=1000;// (1mS)
+	bool error2=false;
+	uint8_t x=0;
+	if (error == 0) {
+		//base->sckOut("I2C transaction: command was successfully sent: requesting response",PRIO_MED,true);
+		auxWire.requestFrom(deviceAddress,0x01,true);	// request 1 Byte (for start command) acknowledgement and then stop
+		while (!auxWire.available()) {
+			delayMicroseconds(1);
+			if (micros()-timer > timeout){
+				//base->sckOut("timeout occured waiting for a response to request",PRIO_MED,true);
+				error2=true;
+				break;
+			}
+
+		}
+		// Testing indicates that inevitably the very first request will result in a timeout.
+		
+		if (error2) {		// therefore we retry immediately
+			auxWire.requestFrom(deviceAddress,1,true);	// request acknowledgement and then stop
+			while (!auxWire.available()) {
+				delayMicroseconds(1);
+				if (micros()-timer > timeout){
+					//base->sckOut("timeout occured on retry waiting for a response to request",PRIO_LOW,true);
+					error2=true;
+					break;
+				}
+			}
+		} else {
+			while (auxWire.available()) {
+				auxWire.read();		// just emptying the read buffer at this point : we do not need the data
+				x++;
+			}
+		}
+	} else {
+		//base->sckOut("error sending start command",PRIO_MED,true);
 	}
-	bool result = auxWire.read();
 
-	if (result == 0) failed = true;
-	else started = true;
+	if (x==0  || error2 || error) {
+		failed = true;
+		return false;
+	} else {
+		//sprintf(base->outBuff,"PM2sensor has started %s", base->sensors[wichSensor].title);
+		//base->sckOut(PRIO_MED,true);
+		for (uint8_t i=0; i<6; i++) if (enabled[i][0] == wichSensor) enabled[i][1] = 1;
+		started = true;
+	}
 
-	return result;
+	return started;
 }
 bool PM2sensor::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2417,9 +2684,8 @@ bool PM2sensor::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 		// Calypso ULP Anemometer
 		case SENSOR_WIND_DIR: 
 		case SENSOR_WIND_SPEED: {
-			if (_slot==WIND){
-				auxWire.write(COMM_STOP_WIND);
-			}
+			auxWire.write(COMM_STOP_WIND);
+			
 			break;
 		}
 
@@ -2428,9 +2694,8 @@ bool PM2sensor::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 		case SENSOR_RAIN_EVENTACC: 
 		case SENSOR_RAIN_TOTALACC: 
 		case SENSOR_RAIN_INTERVAL: {
-			if (_slot==RAIN){
-				auxWire.write(COMM_STOP_WIND);
-			}
+			auxWire.write(COMM_STOP_RAIN);
+			
 			break;
 		}
 		// unrecognised sensor
@@ -2445,39 +2710,20 @@ bool PM2sensor::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 }
 
 ReadingSize PM2sensor::getReadingSize(SensorType wichSensor) {
-	return v_readingFetchSizes[wichSensor];
+	for (uint8_t i=0;i<NUM_COMMANDS;i++) {
+		if (v_readingFetchSizes[i].command == wichSensor) return v_readingFetchSizes[i];
+	}
+	// else
+	return v_readingFetchSizes[0];
 }
 
 void PM2sensor::setLastReading(SensorType wichSensor,PM2sensorCommand wichCommand) {
 	
-	switch (wichSensor) {
-		// Calypso ULP Anemometer
-		case SENSOR_WIND_DIR: {
-			v_readingFetchSizes[COMM_GET_WIND_DIR].lastReadingTime=millis();
-			break;
-		}
-		case SENSOR_WIND_SPEED: {
-			v_readingFetchSizes[COMM_GET_WIND_SPEED].lastReadingTime=millis();
-			break;
-		}
-		case SENSOR_RAIN_ACC: {
-			v_readingFetchSizes[COMM_GET_RAIN_ACC].lastReadingTime=millis();
-			break;
-		}
-		case SENSOR_RAIN_EVENTACC: {
-			v_readingFetchSizes[COMM_GET_RAIN_EVENTACC].lastReadingTime=millis();
-			break;
-		}
-		case SENSOR_RAIN_TOTALACC: {
-			v_readingFetchSizes[COMM_GET_RAIN_TOTALACC].lastReadingTime=millis();
-			break;
-		}
-		case SENSOR_RAIN_INTERVAL: {
-			v_readingFetchSizes[COMM_GET_RAIN_INTVACC].lastReadingTime=millis();
-			break;
-		}
-		// unrecognised sensor
-		default: {
+	//ReadingSize readingsize = getReadingSize( wichSensor);
+	uint8_t i = 0;
+	for ( i=0;i<NUM_COMMANDS;i++) {
+		if (v_readingFetchSizes[i].command == wichSensor) {
+			v_readingFetchSizes[i].lastReadingTime=millis();
 			break;
 		}
 	}
@@ -2487,16 +2733,37 @@ void PM2sensor::setLastReading(SensorType wichSensor,PM2sensorCommand wichComman
 
 bool PM2sensor::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
+	sprintf(base->outBuff,"PM2 sensor reading %s",base->sensors[wichSensor].title);
+	base->sckOut(PRIO_MED,true);
+	
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
+			base->sckOut("could not open a channel");
 			return false;
 		}
-	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
+	} else if (!I2Cdetect(&auxWire, deviceAddress)) {
+		return false;
+	}
+	
+	
+	base->sckOut("PM2Sensor update connected and executing",PRIO_MED,true);
+	/*sprintf(base->outBuff,"Update requested for #: %i", wichSensor);
+	base->sckOut(PRIO_MED,false);
+	sprintf(base->outBuff," aka: %s", base->sensors[wichSensor].title);
+	base->sckOut(PRIO_MED,true);
+	*/
+	ReadingSize readingsize = getReadingSize(wichSensor);
+	/*
+	sprintf(base->outBuff,"Reading command: %i",readingsize.command);
+	base->sckOut(PRIO_MED,false);
+	sprintf(base->outBuff,": sensor: %i",readingsize.sensor);
+	base->sckOut(PRIO_MED,false);
+	sprintf(base->outBuff,": size: %i",readingsize.bytes);
+	base->sckOut(PRIO_MED,true);
+	*/	
 	// Only update if more than one second has past
-	ReadingSize readingsize = getReadingSize( wichSensor);
-
 	if (millis() - readingsize.lastReadingTime > 1000) {
-
+		//base->sckOut("PM2Sensor commanding that a reading be taken");
 		// Ask for readings steps:
 		// open the connection: 				: auxWire.beginTransmission(deviceAddress);
 		// send a command 						: auxWire.write(<commandbyte>>); (tell slave to prepare the data for sending)
@@ -2505,13 +2772,19 @@ bool PM2sensor::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 		
 		PM2sensorCommand command=readingsize.sensor;
 		auxWire.beginTransmission(deviceAddress);
-		auxWire.write(command);
-		auxWire.endTransmission();
-		auxWire.requestFrom(deviceAddress,readingsize.bytes,true);	// ask device to send 4 bytes then disconnect
+		auxWire.write(readingsize.sensor);						// the sensor command
+		auxWire.endTransmission();								// should be no need to insert extra delays
+		auxWire.requestFrom(deviceAddress,readingsize.bytes,true);	// ask device to send N bytes 
 		
 		// wait up to 0.5seconds for a response (a blocking call !)
 		uint32_t time = millis();
-		while (!auxWire.available()) if ((millis() - time) > 500) return false;
+		while (!auxWire.available()) {
+			if ((micros() - time) > 20) {
+				base->sckOut("Timeout waiting for a response to requestFrom()",PRIO_MED,true);
+				//auxBoard->testMuxChanMap(base);
+				return false;
+			}
+		}
 
 		// Check for errors
 		uint8_t i=0;
@@ -2520,44 +2793,58 @@ bool PM2sensor::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 			i++;
 		}
 		if (i != (readingsize.bytes)  ) {
+			sprintf(base->outBuff,"ERROR: Incorrect number of Bytes received: %i (expected %i)",i,readingsize.bytes);
+			base->sckOut(PRIO_MED,true);
 			return false;
 		}
-		// record the reading time
+		//base->sckOut("Reading OK; decoding it:",PRIO_MED,false);
+		//sprintf(base->outBuff,"Reading value %f", myreading.f);
+		////base->sckOut(PRIO_MED,true);
+		// record the reading time :
 		setLastReading( wichSensor, command);
-		switch (wichSensor) {
-			// Calypso ULP Anemometer
-			case SENSOR_WIND_DIR: {
-				String windDir=String(myreading.f);		// convert char array into a String using overloaded = oerator
-				break;
+		if (!isnan(myreading.f)) {		// check to ensure all 4 bytes have been reeived
+			switch (wichSensor) {
+				// Calypso ULP Anemometer
+				case SENSOR_WIND_DIR: {
+					windDir=String(myreading.f);		// convert char array into a String using overloaded = oerator
+					break;
+				}
+				case SENSOR_WIND_SPEED: {
+					windSpeed=String(myreading.f);
+					break;
+				}
+				// Radeon ULP IR Rain Gauge
+				case SENSOR_RAIN_ACC: {
+					rainAcc=String(myreading.f);	
+					break;
+				}
+				case SENSOR_RAIN_EVENTACC: {
+					rainEventAcc=String(myreading.f);	
+					break;
+				}
+				case SENSOR_RAIN_TOTALACC: {
+					rainTotalAcc=String(myreading.f);	
+					break;
+				}
+				case SENSOR_RAIN_INTERVAL: {
+					rainIntAcc=String(myreading.f);	
+					break;
+				}
+				// unrecognised sensor
+				default: {
+					base->sckOut("ERROR: incorrect sensor request",PRIO_MED,true);
+					break;
+				}
 			}
-			case SENSOR_WIND_SPEED: {
-				String windSpeed=String(myreading.f);
-				break;
-			}
-			// Radeon ULP IR Rain Gauge
-			case SENSOR_RAIN_ACC: {
-				String rainAcc=String(myreading.f);	
-				break;
-			}
-			case SENSOR_RAIN_EVENTACC: {
-				String rainEventAcc=String(myreading.f);	
-				break;
-			}
-			case SENSOR_RAIN_TOTALACC: {
-				String rainTotalAcc=String(myreading.f);	
-				break;
-			}
-			case SENSOR_RAIN_INTERVAL: {
-				String rainIntAcc=String(myreading.f);	
-				break;
-			}
-			// unrecognised sensor
-			default: {
-				break;
-			}
+		} else {
+			base->sckOut("ERROR: reading value returned was not a float (isNan)",PRIO_MED,true);
+			return false;
 		}
 		
+	} else {
+		base->sckOut("It is not yet time for the next reading",PRIO_MED,true);
 	}
+	//base->sckOut("reading value was OK",PRIO_MED,true);
 	return true;
 }
 
@@ -2566,23 +2853,23 @@ bool PM2sensor::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 // communication is via I2C -> PM Board -> Sensor
 bool PM_DallasTemp::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
-	base->sckOut("Dallas:: I have been asked to start", PRIO_MED,true);
+	//base->sckOut("Dallas:: I have been asked to start", PRIO_LOW,true);
 	// If we are using a I2C port MUX; then the Port must be enabled prior to calling this library
 	if (auxBoard->TCAMUXMODE && deviceAddress != 0x00) {
 		localPortNum=auxBoard->findDeviceChan(base,deviceAddress,wichSensor, true,false);
 		if (localPortNum > TCA_CHANNEL_7) {
 			localPortNum=0x00;
-			base->sckOut("Dallas:: sorry, but I could not get a good channel", PRIO_MED,true);
+			//base->sckOut("Dallas:: sorry, but I could not get a good channel", PRIO_LOW,true);
 			return false;	// the device was not found 
 		} else {			// even if we find a port its no good if we cannt communicate with the device
 			if (!I2Cdetect(&auxWire, deviceAddress)) return false;
-			base->sckOut("Dallas:: sorry, but I am not listening", PRIO_MED,true);
+			//base->sckOut("Dallas:: sorry, but I am not listening", PRIO_LOW,true);
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) {	
-		base->sckOut("Dallas:: sorry, but I am not listening", PRIO_MED,true);
+		//base->sckOut("Dallas:: sorry, but I am not listening", PRIO_LOW,true);
 		return false;
 	}
-	base->sckOut("It seems we can talk to the Dallas Probe via PMB1", PRIO_MED,true);
+	//base->sckOut("It seems we can talk to the Dallas Probe via PMB1", PRIO_LOW,true);
 
 	auxWire.beginTransmission(deviceAddress);
 	auxWire.write(DALLASTEMP_START);			// starting a conversation with PMB1
@@ -2590,17 +2877,17 @@ bool PM_DallasTemp::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSenso
 	auxWire.requestFrom(deviceAddress, 1,true);		// requesting a confirmation result and a stop signal so Bus is not hung up
 
 	bool result = auxWire.read();
-	if (result){
-		base->sckOut("Dallas Probe via PMB1 is started", PRIO_MED,true);
-	} else {
-		base->sckOut("Dallas Probe via PMB1 is NOT started", PRIO_MED,true);
-	}
+	//if (result){
+		//base->sckOut("Dallas Probe via PMB1 is started", PRIO_LOW,true);
+	//} else {
+	//	base->sckOut("Dallas Probe via PMB1 is NOT started", PRIO_LOW,true);
+	//}
 	return result;
 }
 bool PM_DallasTemp::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2616,7 +2903,7 @@ bool PM_DallasTemp::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor
 float PM_DallasTemp::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2722,7 +3009,7 @@ bool PM_Grove_GPS::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor
 bool PM_Grove_GPS::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2736,7 +3023,7 @@ bool PM_Grove_GPS::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 bool PM_Grove_GPS::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor, GpsReadings &r)
 {
 	if (auxBoard->TCAMUXMODE) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2831,7 +3118,7 @@ bool XA111GPS::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 bool XA111GPS::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor, GpsReadings &r)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2909,7 +3196,7 @@ bool XA111GPS::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSenso
 bool XA111GPS::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -2942,12 +3229,14 @@ bool NEOM8UGPS::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 	ubloxGps.setAutoPVT(true); 		// Tell the GPS to "send" each solution
 	ubloxGps.saveConfiguration(); 		// Save the current settings to flash and BBR
 
+	auxWire.endTransmission();
+
 	return true;
 }
 bool NEOM8UGPS::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	}
@@ -2955,15 +3244,20 @@ bool NEOM8UGPS::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 	
 	// TODO (done ?)
 	// Turn ON Lowpower mode
-	return ubloxGps.powerSaveMode(true, 1);
+	bool result=ubloxGps.powerSaveMode(true, 1);
+	auxWire.endTransmission();
+
+	return result;
 }
 bool NEOM8UGPS::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor, GpsReadings &r)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
+
+	base->sckOut("NEO GPS connectivity OK",PRIO_MED,true);
 
 	switch(wichSensor) {
 
@@ -3041,6 +3335,11 @@ bool NEOM8UGPS::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSens
 	}
 
 	lastReading = millis();
+	// conjecture: sometimes on exit; the uBlox library is forgetting to end the transmission
+	// having left it  (holding the bus open).
+	auxWire.endTransmission();
+
+	//auxBoard->testMuxChanMap(base);
 
 	// TODO use power save mode between readings if posible
 
@@ -3049,7 +3348,7 @@ bool NEOM8UGPS::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSens
 bool NEOM8UGPS::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -3064,8 +3363,11 @@ bool NEOM8UGPS::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 		base->sckOut("Update finished; ubloxGps returned no data");
 		return false;
 	}*/
-	return ubloxGps.getPVT();
+	bool response=ubloxGps.getPVT();;
+	auxWire.endTransmission();
+	return response;
 }
+#ifndef MISC_DISABLE
 bool Sck_DallasTemp::start()
 {
 	
@@ -3137,7 +3439,7 @@ bool Sck_Range::stop()
 bool Sck_Range::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -3185,7 +3487,7 @@ bool Sck_BME680::stop()
 bool Sck_BME680::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -3202,7 +3504,7 @@ bool Sck_BME680::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 
 	return true;
 }
-
+#endif
 bool Sck_ADS1X15::start(SckBase* base,uint8_t address,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	// If we are using a I2C port MUX; then the Port must be enabled prior to calling this library
@@ -3232,7 +3534,7 @@ bool Sck_ADS1X15::stop()
 bool Sck_ADS1X15::getReading(SckBase* base,AuxBoards* auxBoard,uint8_t wichChannel,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -3282,6 +3584,7 @@ bool Sck_ADS1X15::getReading(SckBase* base,AuxBoards* auxBoard,uint8_t wichChann
 	}
 
 	reading = (float)value / 32768 * voltage_range;
+	//auxBoard->testMuxChanMap(base);
 	return true;
 }
 
@@ -3362,7 +3665,7 @@ void Sck_ADS1X15::runTester(uint8_t wichChannel)
 	SerialUSB.println("Run test finished!");
 }
 #endif
-
+#ifndef SCD30_DISABLE
 bool Sck_SCD30::start(SckBase* base, SensorType wichSensor,AuxBoards* auxBoard)
 {
 	// If we are using a I2C port MUX; then the Port must be enabled prior to calling this library
@@ -3424,7 +3727,7 @@ bool Sck_SCD30::stop(SckBase* base,SensorType wichSensor,AuxBoards* auxBoard)
 		if (enabled[i][1] == 1) return false;
 	}
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -3437,7 +3740,7 @@ bool Sck_SCD30::stop(SckBase* base,SensorType wichSensor,AuxBoards* auxBoard)
 bool Sck_SCD30::getReading(SckBase* base,SensorType wichSensor,AuxBoards* auxBoard)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -3466,7 +3769,7 @@ bool Sck_SCD30::getReading(SckBase* base,SensorType wichSensor,AuxBoards* auxBoa
 uint16_t Sck_SCD30::interval(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,uint16_t newInterval)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -3488,7 +3791,7 @@ bool Sck_SCD30::autoSelfCal(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 {
 	// Value: 0 -> disable, 1 -> enable, any other -> get current setting
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -3502,7 +3805,7 @@ bool Sck_SCD30::autoSelfCal(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 uint16_t Sck_SCD30::forcedRecalFactor(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,uint16_t newFactor)
 {
 	if (auxBoard->TCAMUXMODE)  {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	}
@@ -3526,7 +3829,7 @@ float Sck_SCD30::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 	// We calculate the difference against the sensor measured temperature to set the correct offset. Please wait for sensor to stabilize temperatures before aplying an offset.
 	// Temperature offset should always be positive (the sensor is generating heat)
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,false)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	}
@@ -3544,11 +3847,12 @@ float Sck_SCD30::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 
 	return currentOffsetTemp / 100.0;
 }
+#endif
 // Added by Bryn Parrott for SCS V3
 // bryn.parrott@gmail.com; 20211219 @ Taichung, Taiwan ROC
 /*
 	SCD4x sensors collect CO2; Humidity; Temperature Readings.
-	The SCD41 version provides single shopt mode
+	The SCD41 version provides single shot mode (but we are not using it)
 	If The sensor receives regular updated of Barometric Pressure; Readings can be more accurate.
 
 	The Sensor can automatically initiate readings every 5 seconds or every 30 seconds.
@@ -3588,34 +3892,36 @@ bool Sck_SCD4x::start(SckBase* base, SensorType wichSensor,AuxBoards* auxBoard)
 	if (_debug) sparkfun_SCD4x.enableDebugging(SerialUSB);
 
 	// start the device:
-	if (!sparkfun_SCD4x.begin(auxWire, false, true, false)) {
+	if (!sparkfun_SCD4x.begin(auxWire, true, true, false)) {
 					//measBegin_________/     |     |
 					//autoCalibrate__________/      |
 					//skipStopPeriodicMeasurements_/  
-		// base->sckOut("SCD41 library NOT initiated", PRIO_MED, true);
+		base->sckOut("SCD41 library NOT initiated", PRIO_MED, true);
 		return false;
-	/*} else  {
-		base->sckOut("SCD41 library initiated", PRIO_MED, true);*/
+	} else  {
+		base->sckOut("SCD41 library initiated", PRIO_MED, true);
 	}
 
-	delay(500);
 
 
 	// set up Ambient pressure compensation
 	//base->sckOut("SCD41 starting pressure compensation", PRIO_MED, true);
 	pressureCompensated=setPressureComp(base,true);
-	delay(1);
+
 	// check for automatic self Calibration;
+	/*
 	if (!sparkfun_SCD4x.getAutomaticSelfCalibrationEnabled()) {
 
 		sparkfun_SCD4x.setAutomaticSelfCalibrationEnabled();
 		delay(1);
 		base->sckOut("SCD4x Automatic Self Calibration is enabled");
 	};
+	*/
 	
 	// Get the first set of measurements under way 
 	//base->sckOut("SCD41 starting periodic measurements (5 sec)", PRIO_MED, true);
-	sparkfun_SCD4x.startPeriodicMeasurement();  // readings available after 5 seconds have elapsed
+	// sparkfun_SCD4x.startPeriodicMeasurement();  
+	// see begin (above) readings will be available after 5 seconds have elapsed
 	
 
 	// Mark this metric (x3) as enabled
@@ -3647,7 +3953,7 @@ bool Sck_SCD4x::getReading(SckBase* base,SensorType wichSensor,AuxBoards* auxBoa
 {
 	
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) {
@@ -3670,6 +3976,14 @@ bool Sck_SCD4x::getReading(SckBase* base,SensorType wichSensor,AuxBoards* auxBoa
 	switch (wichSensor) {
 		case SENSOR_SCD4x_CO2: {
 			co2 = sparkfun_SCD4x.getCO2();
+			sprintf(base->outBuff,"CO2 reading (1) (float) %i",co2);
+			base->sckOut(PRIO_MED,true);
+			if (co2==0) {
+				sparkfun_SCD4x.readMeasurement();
+				co2 = sparkfun_SCD4x.getCO2();
+				sprintf(base->outBuff,"CO2 reading (1a) (float) %i",co2);
+				base->sckOut(PRIO_MED,true);
+			}
 			readcount++;		
 			break;
 		}
@@ -3684,17 +3998,18 @@ bool Sck_SCD4x::getReading(SckBase* base,SensorType wichSensor,AuxBoards* auxBoa
 			break;
 		}
 		default: {
-			base->sckOut("SCD4x: Unrecognised request");
+			//base->sckOut("SCD4x: Unrecognised request");
 			return false;
 			break;
 		}
 	}
+	//auxBoard->testMuxChanMap(base);
 	return true;
 }
 uint16_t Sck_SCD4x::interval(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,uint16_t newInterval)
 {
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -3748,12 +4063,12 @@ bool Sck_SCD4x::setPressureComp(SckBase* base,bool value) {
 			uint16_t pressureInMillibar = pressureReading * 10;  // converting KPa to mbar (aka hPa)
 			if (pressureInMillibar > 700 && pressureInMillibar < 1200) {
 				if (sparkfun_SCD4x.setAmbientPressure(pressureInMillibar,1)) {
-					sprintf(base->outBuff,"Pressure Compensation updated : %i ",pressureInMillibar);
-					base->sckOut(PRIO_MED,true);
+					//sprintf(base->outBuff,"Pressure Compensation updated : %i ",pressureInMillibar);
+					//base->sckOut(PRIO_LOW,true);
 					comp = true;
-				} else {
-					sprintf(base->outBuff,"Pressure Compensation NOT updated (out of limits) : %i ",pressureInMillibar);
-					base->sckOut(PRIO_MED,true);
+				//} else {
+					//sprintf(base->outBuff,"Pressure Compensation NOT updated (out of limits) : %i ",pressureInMillibar);
+					//base->sckOut(PRIO_LOW,true);
 
 				}
 			}
@@ -3768,7 +4083,7 @@ bool Sck_SCD4x::autoSelfCal(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 {
 	// Value: 0 -> disable, 1 -> enable, any other -> get current setting
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
@@ -3783,7 +4098,7 @@ uint16_t Sck_SCD4x::forcedRecalFactor(SckBase* base,AuxBoards* auxBoard,SensorTy
 {
 	float FRCCorrection=0.0;
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return 0;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return 0;
@@ -3812,7 +4127,7 @@ float Sck_SCD4x::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 	// Please wait for sensor to stabilize temperatures before aplying an offset.
 	// Temperature offset should always (assumption) be positive (the sensor is generating heat)
 	if (auxBoard->TCAMUXMODE ) {
-		if ( !auxBoard->testI2C(base,deviceAddress,localPortNum,wichSensor,true)) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,true)) {
 			return 0;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return 0;
@@ -3845,8 +4160,8 @@ float Sck_SCD4x::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 	}
 
 	currentOffsetTemp=sparkfun_SCD4x.getTemperatureOffset();
-	sprintf(base->outBuff,"Temperature Offset updated : %i %% ",currentOffsetTemp/100);
-	base->sckOut(PRIO_MED,true);
+	//sprintf(base->outBuff,"Temperature Offset updated : %i %% ",currentOffsetTemp/100);
+	//base->sckOut(PRIO_MED,true);
 
 	return currentOffsetTemp / 100.0; // this would be the percentage error or percentage change
 }

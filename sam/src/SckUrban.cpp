@@ -108,6 +108,7 @@ void SckUrban::getReading(SckBase *base, OneSensor *wichSensor)
 		case SENSOR_PN_10: 			sck_pm.getReading(base, wichSensor); if (wichSensor->state == -1) break; if (wichSensor->state == 0) wichSensor->reading = String(sck_pm.pn10); return;
 		default: break;
 	}
+	
 	wichSensor->reading = "null";
 	wichSensor->state = -1;
 }
@@ -517,15 +518,16 @@ bool Sck_Noise::stop()
 bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 {
 
-	base->sckOut("sckNoise:getReading",PRIO_MED,true);
+	//base->sckOut("sckNoise:getReading",PRIO_MED,true);
 
 	if (!I2S.begin(I2S_PHILIPS_MODE, sampleRate, 32)) return false;
 
 	// Wait 263000 I2s cycles or 85 ms at 441000 hz
-	base->sckOut("sckNoise:getReading started priming of I2S port",PRIO_MED,true);
+	//base->sckOut("sckNoise:getReading started priming of I2S port",PRIO_LOW,true);
 	uint32_t startPoint = millis();
-	while (millis() - startPoint < 200) I2S.read();
-	base->sckOut("sckNoise:getReading finished priming of I2S port",PRIO_MED,true);
+	//while (millis() - startPoint < 200) I2S.read();
+	while (millis() - startPoint < 250) I2S.read();
+	//base->sckOut("sckNoise:getReading finished priming of I2S port",PRIO_LOW,true);
 
 	// receive buffer
 	int32_t source[SAMPLE_NUM];
@@ -534,7 +536,7 @@ bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 	startPoint = millis();
 	uint8_t timeOut = 30; 	// (ms) Timeout to avoid hangs if the I2S is not responding
 	// Fill buffer with samples from I2S bus
-	base->sckOut("sckNoise:getReading beginning I2S data reception",PRIO_MED,true);
+	//base->sckOut("sckNoise:getReading beginning I2S data reception",PRIO_LOW,true);
 	while (bufferIndex < SAMPLE_NUM) {
 		int32_t buff = I2S.read();
 		if (buff) {
@@ -548,21 +550,21 @@ bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 		}
 	}
 	I2S.end();
-	base->sckOut("sckNoise:getReading ended I2S data reception",PRIO_MED,true);
+	//base->sckOut("sckNoise:getReading ended I2S data reception",PRIO_LOW,true);
 
-	// Get de average of recorded samples
+	// Get the average of recorded samples
 	int32_t sum = 0;
 	for (uint16_t i=0; i<SAMPLE_NUM; i++) sum += source[i];
 	int32_t avg = sum / SAMPLE_NUM;
 
 	// Center samples in zero
 	for (uint16_t i=0; i<SAMPLE_NUM; i++) source[i] = source[i] - avg;
-	base->sckOut("sckNoise:getReading samples have been averaged",PRIO_MED,true);
+	//base->sckOut("sckNoise:getReading samples have been averaged",PRIO_LOW,true);
 
 	// FFT
-	base->sckOut("sckNoise:getReading perform FFT",PRIO_MED,true);
+	//base->sckOut("sckNoise:getReading perform FFT",PRIO_LOW,true);
 	FFT(source);
-	base->sckOut("sckNoise:getReading finished performing FFT, beginning weighting and averaging",PRIO_MED,true);
+	//base->sckOut("sckNoise:getReading finished performing FFT, beginning weighting and averaging",PRIO_LOW,true);
 
 	switch(wichSensor) {
 
@@ -585,17 +587,27 @@ bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 			break;
 		default: break;
 	}
-	base->sckOut("sckNoise:getReading finished weighting and averaging, calculating RMS",PRIO_MED,true);
+	//base->sckOut("sckNoise:getReading finished weighting and averaging, calculating RMS",PRIO_LOW,true);
 
 	// RMS
 	long long rmsSum = 0;
 	double rmsOut = 0;
 	for (uint16_t i=0; i<FFT_NUM; i++) rmsSum += pow(readingFFT[i], 2) / FFT_NUM;
-	rmsOut = sqrt(rmsSum);
+	//sprintf(base->outBuff,"Noise rmsSum reading as a number (float) %g",float(rmsSum));
+	if (rmsSum > 0) {
+		rmsOut = sqrt(rmsSum);
+	} else {
+		rmsOut = 0;
+	}
 	rmsOut = rmsOut * 1 / RMS_HANN * sqrt(FFT_NUM) / sqrt(2);
 
 	// Convert to dB
 	readingDB = (double) (FULL_SCALE_DBSPL - (FULL_SCALE_DBFS - (20 * log10(rmsOut * sqrt(2)))));
+
+	//sprintf(base->outBuff,"Noise rmsOut reading as a number (float) %g",float(rmsOut));
+	//base->sckOut(PRIO_MED,true);
+	//sprintf(base->outBuff,"Noise reading as a number (float) %f",readingDB);
+	//base->sckOut(PRIO_MED,true);
 
 	if (debugFlag) {
 		SerialUSB.println("samples, FFT_weighted");
@@ -606,7 +618,7 @@ bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 			else SerialUSB.println();
 		}
 	}
-	base->sckOut("sckNoise:getReading finished calculating RMS: All done",PRIO_MED,true);
+	//base->sckOut("sckNoise:getReading finished calculating RMS: All done",PRIO_MED,true);
 
 	return true;
 }
@@ -1101,7 +1113,7 @@ bool Sck_CCS811::getReading(SckBase *base)
 		}
 
 		if (debug) {
-			sprintf(base->outBuff,"CCS811: Drivemode interval (ms): %l ",Uinterval);
+			sprintf(base->outBuff,"CCS811: Drivemode interval (ms): %ld ",Uinterval);
 			base->sckOut(PRIO_LOW,true);
 		}
 
