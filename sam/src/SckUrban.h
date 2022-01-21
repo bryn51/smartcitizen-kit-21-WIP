@@ -123,6 +123,9 @@ class Sck_Noise
 		bool stop();
 		bool getReading(SckBase* base,SensorType wichSensor);
 
+		// moved from getReading to here : ....
+		int32_t source[SAMPLE_NUM] ={0};  // NB: 512 x 32 bit values (4 bytes) = 2048 Bytes
+
 };
 
 // Barometric pressure and Altitude

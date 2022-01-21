@@ -238,6 +238,8 @@ bool AuxBoards::start(SckBase* base, SensorType wichSensor)
 
 bool AuxBoards::stop(SckBase* base, SensorType wichSensor)
 {
+	if (TCAMUXMODE) resetI2CMux();
+
 	switch (wichSensor) {
 		#ifndef GASBOARD_DISABLE
 		case SENSOR_GASESBOARD_SLOT_1A:
@@ -354,7 +356,7 @@ void AuxBoards::getReading(SckBase* base, OneSensor *wichSensor)
 	sprintf(base->outBuff,"AUX is reading: %s",base->sensors[wichSensor->type].title);
 	base->sckOut(PRIO_MED,true);
 
-	testMuxChanMap(base);
+	if (TCAMUXMODE) resetI2CMux();
 	
 	wichSensor->state = 0;
 	switch (wichSensor->type) {
@@ -1176,6 +1178,15 @@ void AuxBoards::testMuxChanMap(SckBase* base) {
 		}
 	}
 	return;
+}
+void resetI2CMux() {
+	
+	auxWire.endTransmission();
+	auxWire.setClock(100000);
+	TCA.closeAll();
+
+	return;
+
 }
 uint8_t AuxBoards::countTCAOpenChannels(SckBase* base) {
 	// count the number of mux channels that are open
@@ -2781,7 +2792,6 @@ bool PM2sensor::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 		while (!auxWire.available()) {
 			if ((micros() - time) > 20) {
 				base->sckOut("Timeout waiting for a response to requestFrom()",PRIO_MED,true);
-				//auxBoard->testMuxChanMap(base);
 				return false;
 			}
 		}
@@ -3339,8 +3349,6 @@ bool NEOM8UGPS::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSens
 	// having left it  (holding the bus open).
 	auxWire.endTransmission();
 
-	//auxBoard->testMuxChanMap(base);
-
 	// TODO use power save mode between readings if posible
 
 	return true;
@@ -3584,7 +3592,7 @@ bool Sck_ADS1X15::getReading(SckBase* base,AuxBoards* auxBoard,uint8_t wichChann
 	}
 
 	reading = (float)value / 32768 * voltage_range;
-	//auxBoard->testMuxChanMap(base);
+
 	return true;
 }
 
@@ -4003,7 +4011,6 @@ bool Sck_SCD4x::getReading(SckBase* base,SensorType wichSensor,AuxBoards* auxBoa
 			break;
 		}
 	}
-	//auxBoard->testMuxChanMap(base);
 	return true;
 }
 uint16_t Sck_SCD4x::interval(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor,uint16_t newInterval)

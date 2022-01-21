@@ -281,6 +281,7 @@ class AuxBoards
 		// bool testI2C(SckBase* base,uint8_t address, uint8_t channel,SensorType wichSensor,bool exclusive);
 		bool openChannel(SckBase* base,uint8_t address, uint8_t channel,bool exclusive);
 		void testMuxChanMap(SckBase* base);
+		void resetI2CMux();
 
 
 		uint8_t countTCAOpenChannels(SckBase* base);
