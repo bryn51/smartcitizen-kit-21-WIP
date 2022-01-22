@@ -245,7 +245,9 @@ void SckBase::update()
 		if (millis() - updateDisplayMillis > 1000) { // update the display no more often than 1 second
 			//sckOut("SckBase:update update OLED",PRIO_MED,true);		
 			updateDisplayMillis=millis();
+			// mirrored displays (temporary)
 			if (sensors[SENSOR_GROVE_OLED].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED,false);
+			if (sensors[SENSOR_GROVE_OLED2].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2,false);
 		}
 
 	}
@@ -591,6 +593,7 @@ void SckBase::inputUpdate()
 // **** Output
 void SckBase::sckOut(String strOut, PrioLevels priority, bool newLine)
 {
+	/*
 	if (strOut.equals(outBuff)) {
 		outRepetitions++;
 		if (outRepetitions >= 10) {
@@ -599,6 +602,7 @@ void SckBase::sckOut(String strOut, PrioLevels priority, bool newLine)
 		}
 		return;
 	}
+	*/
 	outRepetitions = 0;
 	strOut.toCharArray(outBuff, strOut.length()+1);
 	sckOut(priority, newLine);
@@ -643,8 +647,31 @@ void SckBase::sckOut(PrioLevels priority, bool newLine)
 	}
 
 	// Debug output to oled display
+
 	if (config.debug.oled) {
-		if (sensors[SENSOR_GROVE_OLED].enabled) auxBoards.print(this,SENSOR_GROVE_OLED,outBuff);
+		if (sensors[SENSOR_GROVE_OLED].enabled) {
+			if (sensors[SENSOR_GROVE_OLED2].enabled) {		// twin displays fitted
+				switch (currentDisplay) {
+					case 1: {
+						auxBoards.print(this,SENSOR_GROVE_OLED,outBuff);
+						currentDisplay=2;
+						break;
+
+					}
+					case 2: {
+						auxBoards.print(this,SENSOR_GROVE_OLED2,outBuff);
+						currentDisplay=1;
+						break;
+					}
+				}
+			} else {
+				auxBoards.print(this,SENSOR_GROVE_OLED,outBuff);		// just 1: original 
+				currentDisplay=1;
+			}
+		} else if (sensors[SENSOR_GROVE_OLED2].enabled) {				// just 1: 2nd display (on alternate address)
+			auxBoards.print(this,SENSOR_GROVE_OLED2,outBuff);
+			currentDisplay=2;
+		}
 	}
 }
 void SckBase::prompt()
@@ -654,6 +681,8 @@ void SckBase::prompt()
 }
 void SckBase::plot(String value, const char *title, const char *unit)
 {
+	// this is a little difficult to handle with two displays; since the plotting must be done
+	// point by point -> on the same display !!
 	auxBoards.plot(this,SENSOR_GROVE_OLED,value, title, unit);
 }
 
@@ -1423,7 +1452,12 @@ void SckBase::updatePower()
 				}
 
 				st.error = ERROR_BATT;
-				auxBoards.updateDisplay(this,SENSOR_GROVE_OLED, true); 		// Force update of screen before going to sleep
+				// mirror displays temporary
+				if (sensors[SENSOR_GROVE_OLED].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED, true);// Force update of screen before going to sleep
+				if (sensors[SENSOR_GROVE_OLED2].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2, true);// Force update of screen before going to sleep
+
+				//auxBoards.updateDisplay(this,SENSOR_GROVE_OLED, true); 		// Force update of screen before going to sleep
+				//auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2, true); 		// Force update of screen before going to sleep
 
 				// Ignore last user event and go to sleep
 				lastUserEvent = 0;
@@ -1567,7 +1601,9 @@ void SckBase::sleepLoop()
 		updatePower();
 
 		// If we have a screen update it
+		// mirrored displays (temporary)
 		if (sensors[SENSOR_GROVE_OLED].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED, true);
+		if (sensors[SENSOR_GROVE_OLED2].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2, true);
 
 		now = rtc.getEpoch();
 	}
@@ -2149,7 +2185,6 @@ bool I2Cdetect(TwoWire *_Wire, byte address)
 	if (error == 0) return true;
 	else return false;
 }
-// ============
 
 void Status::setOk()
 {

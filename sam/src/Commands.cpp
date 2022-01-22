@@ -158,8 +158,11 @@ void sensorConfig_com(SckBase* base, String parameters)
 				snprintf(base->outBuff, sizeof(base->outBuff), "%s -> every %i int (%lu sec)", base->sensors[thisType].title, base->sensors[thisType].everyNint, (base->sensors[thisType].everyNint * base->config.readInterval));
 				base->sckOut(PRIO_MED, false);
 
-				if (base->sensors[SENSOR_GROVE_OLED].enabled && base->config.sensors[thisType].oled_display)  base->sckOut(" - oled");
-				else base->sckOut(" ");
+				if ((base->sensors[SENSOR_GROVE_OLED].enabled || base->sensors[SENSOR_GROVE_OLED2].enabled) && base->config.sensors[thisType].oled_display)  {
+					base->sckOut(" - oled");
+				} else {
+					base->sckOut(" ");
+				}
 			}
 		}
 

@@ -275,6 +275,7 @@ class SckBase
 		void sckOut(PrioLevels priority=PRIO_MED, bool newLine=true);
 		void prompt();
 		void plot(String value, const char *title=NULL, const char *unit=NULL);
+		uint8_t currentDisplay=1;
 
 		// Button
 		volatile bool butState = true;

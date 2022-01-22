@@ -226,7 +226,7 @@ class AuxBoards
 			0x4a, 			// SENSOR_ADS1X15_XX_X
 			0x4b, 			// SENSOR_ADS1X15_XX_X
 
-			//0x3d			// SENSOR_GROOVE_OLED2
+			
 			//0x70			// TCA9548A I2C MUX  (not certain this is neded here)
 			0x62, 			// SENSOR_SCD4x_CO2, 	 
 			0x62, 			// SENSOR_SCD4x_TEMP, 	 
@@ -238,7 +238,8 @@ class AuxBoards
 			0x03,			// SENSOR_RAIN_ACC
 			0x03,			// SENSOR_RAIN_EVENTACC
 			0x03,			// SENSOR_RAIN_TOTALACC
-			0x03			// SENSOR_RAIN_INTERVAL
+			0x03,			// SENSOR_RAIN_INTERVAL
+			0x3d			// SENSOR_GROOVE_OLED2
 			
 		};
 
@@ -263,6 +264,8 @@ class AuxBoards
 		// 8 Channel I2C MUX
 		bool TCAMUXMODE=false;
 		byteint muxAddress;
+
+		uint8_t currentDisplay=1;		// 1 or 2
 		
 
 		// uint8_t findDevicePort(TwoWire *_Wire, byte address);	// find the port that a device is connected to.
@@ -353,7 +356,11 @@ class INA219
 class Groove_OLED
 {
 	public:
-		const byte deviceAddress = 0x3c;
+		Groove_OLED (uint8_t Addr=0x3c){		/// constructor
+			deviceAddress=Addr;
+		};
+		
+		byte deviceAddress = 0x3c;		// default value
 		const uint32_t showTime = 3;
 
 		U8G2_SH1107_SEEED_128X128_F_2ND_HW_I2C u8g2_oled = U8G2_SH1107_SEEED_128X128_F_2ND_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
