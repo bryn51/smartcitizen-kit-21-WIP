@@ -30,8 +30,10 @@ void AllCommands::in(SckBase* base, String strIn)
 		}
 	}
 
-	if (reqComm < COM_COUNT) com_list[reqComm].function(base, strIn);
+	if (reqComm < COM_COUNT) com_list[reqComm].function(base, strIn);  // This is where the specified command is executed
 	else base->sckOut("Unrecognized command!!");
+
+	base->sckOut("Command was executed ",PRIO_MED,true);
 }
 void AllCommands::wildCard(SckBase* base, String strIn)
 {

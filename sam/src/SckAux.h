@@ -6,6 +6,10 @@
 #define MISC_DISABLE
 #define SCD30_DISABLE
 
+// #define TWO_OLED
+#define ONE_OLED
+
+
 #include <Arduino.h>
 #include <SckBase.h>
 #include <Sensors.h>
@@ -66,7 +70,12 @@
 // Adafruit library for ADS1x15 12/16 bits ADC
 #include <Adafruit_ADS1015.h>
 
+// Seeed Library for TCA9458A I2C Mux
 #include "TCA9548A.h"
+
+// SCISense Library for ENS160 and ENS210 VOC and temp/Hum sensors (eval Kit)
+#include "ScioSense_ENS160.h"
+#include "ScioSense_ENS210.h"
 
 // ADS Tester (Only supported in version 2.0 and greater)
 // This function is only for internal purposes
@@ -239,8 +248,11 @@ class AuxBoards
 			0x03,			// SENSOR_RAIN_EVENTACC
 			0x03,			// SENSOR_RAIN_TOTALACC
 			0x03,			// SENSOR_RAIN_INTERVAL
-			0x3d			// SENSOR_GROOVE_OLED2
-			
+			0x3d,			// SENSOR_GROOVE_OLED2
+
+			0x43,			// SENSOR_ENA210_xx,
+			0x52			// SENSOR_ENS160_xx,
+
 		};
 
 		bool start(SckBase* base, SensorType wichSensor);
@@ -360,7 +372,8 @@ class Groove_OLED
 			deviceAddress=Addr;
 		};
 		
-		byte deviceAddress = 0x3c;		// default value
+		//byte deviceAddress = 0x3c;		// default value
+		byte deviceAddress = 0x3d;		// default value
 		const uint32_t showTime = 3;
 
 		U8G2_SH1107_SEEED_128X128_F_2ND_HW_I2C u8g2_oled = U8G2_SH1107_SEEED_128X128_F_2ND_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
@@ -1007,6 +1020,51 @@ class Sck_SCD4x
 		
 		SCD4x sparkfun_SCD4x;
 		
+		bool tcaMuxMode=false;
+		byte localPortNum= 0x00; // I2c mux port number (0 = no mux)
+
+};
+class Sck_ENS160
+{
+	public:
+		
+		const byte deviceAddress = 0x52;
+		bool start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor);
+		bool stop();
+		bool getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor);
+
+		float eCO2;
+		float tVOC;
+		float AQI;
+	private:
+		uint32_t lastTime = 0;
+		uint32_t minTime = 1000; 		// Avoid taking readings more often than this value (ms)
+		bool alreadyStarted = false;
+		ScioSense_ENS160 ss_ens160;
+		bool ens210Available=false;
+		ScioSense_ENS210 ss_ens210;		// needed to allow ENS160 to efficiently read ENS210 temp and humidity for calibration ongoing
+		bool tcaMuxMode=false;
+		byte localPortNum= 0x00; // I2c mux port number (0 = no mux)
+
+};
+
+class Sck_ENS210
+{
+	public:
+		
+		const byte deviceAddress = 0x43;
+		bool start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor);
+		bool stop();
+		bool getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor);
+
+		float temp;
+		float abstemp;
+		float hum;
+	private:
+		uint32_t lastTime = 0;
+		uint32_t minTime = 1000; 	// Avoid taking readings more often than this value (ms)
+		bool alreadyStarted = false;
+		ScioSense_ENS210 ss_ens210;
 		bool tcaMuxMode=false;
 		byte localPortNum= 0x00; // I2c mux port number (0 = no mux)
 

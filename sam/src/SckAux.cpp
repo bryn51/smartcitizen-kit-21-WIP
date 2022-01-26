@@ -8,8 +8,16 @@ GasesBoard		gasBoard;
 #endif
 GrooveI2C_ADC		grooveI2C_ADC;
 INA219			ina219;
+
+#ifdef TWO_OLED
 Groove_OLED		groove_OLED(0x3c);
 Groove_OLED		groove_OLED2(0x3d);
+#endif
+#ifdef ONE_OLED
+//Groove_OLED		groove_OLED(0x3d);
+Groove_OLED		groove_OLED(0x3c);
+#endif
+
 #ifndef MISC_DISABLE
 WaterTemp_DS18B20 	waterTemp_DS18B20;
 #endif
@@ -49,6 +57,10 @@ Sck_SCD30 		scd30;
 #endif
 Sck_SCD4x		scd4x;		// the default is SCD40 - not what we have here
 TCA9548A<TwoWire> TCA;
+
+// ScioSense ENS160 Eval Board
+Sck_ENS160		ens160;
+Sck_ENS210		ens210;
 
 
 
@@ -224,14 +236,26 @@ bool AuxBoards::start(SckBase* base, SensorType wichSensor)
 		case SENSOR_SCD4x_CO2: 			return scd4x.start(base, SENSOR_SCD4x_CO2,this); break;
 		case SENSOR_SCD4x_TEMP: 		return scd4x.start(base, SENSOR_SCD4x_TEMP,this); break;
 		case SENSOR_SCD4x_HUM: 			return scd4x.start(base, SENSOR_SCD4x_HUM,this); break;
+		#ifdef ONE_OLED 
+		case SENSOR_GROVE_OLED: 		return groove_OLED.start(base,this,wichSensor); break;
+		#endif
+		#ifdef TWO_OLED
 		case SENSOR_GROVE_OLED: 		return groove_OLED.start(base,this,wichSensor); break;
 		case SENSOR_GROVE_OLED2: 		return groove_OLED2.start(base,this,wichSensor); break;
+		#endif
 		case SENSOR_WIND_DIR:			return windandrain.start(base,this,SENSOR_WIND_DIR); break;
 		case SENSOR_WIND_SPEED:			return windandrain.start(base,this,SENSOR_WIND_SPEED); break;
 		case SENSOR_RAIN_ACC:			return windandrain.start(base,this,SENSOR_RAIN_ACC); break;
 		case SENSOR_RAIN_EVENTACC:		return windandrain.start(base,this,SENSOR_RAIN_EVENTACC); break;
 		case SENSOR_RAIN_TOTALACC:		return windandrain.start(base,this,SENSOR_RAIN_TOTALACC); break;
 		case SENSOR_RAIN_INTERVAL:		return windandrain.start(base,this,SENSOR_RAIN_INTERVAL); break;
+		case SENSOR_ENS160_ECO2:		return ens160.start(base,this,SENSOR_ENS160_ECO2); break;
+		case SENSOR_ENS160_TVOC:		return ens160.start(base,this,SENSOR_ENS160_TVOC); break;
+		case SENSOR_ENS160_AQI:		return ens160.start(base,this,SENSOR_ENS160_AQI); break;
+		case SENSOR_ENS210_TEMP:		return ens210.start(base,this,SENSOR_ENS210_TEMP); break;
+		case SENSOR_ENS210_ABSTEMP:		return ens210.start(base,this,SENSOR_ENS210_ABSTEMP); break;
+		case SENSOR_ENS210_HUM:		return ens210.start(base,this,SENSOR_ENS210_HUM); break;
+
 		default: break;
 	}
 	//sprintf(base->outBuff,"AUX did not start: %s",base->sensors[wichSensor].title);
@@ -347,8 +371,19 @@ bool AuxBoards::stop(SckBase* base, SensorType wichSensor)
 		case SENSOR_RAIN_EVENTACC:		return windandrain.stop(base,this,SENSOR_RAIN_EVENTACC); break;
 		case SENSOR_RAIN_TOTALACC:		return windandrain.stop(base,this,SENSOR_RAIN_TOTALACC); break;
 		case SENSOR_RAIN_INTERVAL:		return windandrain.stop(base,this,SENSOR_RAIN_INTERVAL); break;
+		#ifdef ONE_OLED 
+		case SENSOR_GROVE_OLED: 		return groove_OLED.stop(); break;
+		#endif
+		#ifdef TWO_OLED
 		case SENSOR_GROVE_OLED: 		return groove_OLED.stop(); break;
 		case SENSOR_GROVE_OLED2: 		return groove_OLED2.stop(); break;
+		#endif
+		case SENSOR_ENS160_ECO2:		return ens160.stop(); break;
+		case SENSOR_ENS160_TVOC:		return ens160.stop(); break;
+		case SENSOR_ENS160_AQI:		return ens160.stop(); break;
+		case SENSOR_ENS210_TEMP:		return ens210.stop(); break;
+		case SENSOR_ENS210_ABSTEMP:		return ens210.stop(); break;
+		case SENSOR_ENS210_HUM:		return ens210.stop(); break;
 		default: break;
 	}
 	
@@ -460,21 +495,21 @@ void AuxBoards::getReading(SckBase* base, OneSensor *wichSensor)
 		case SENSOR_SCD30_TEMP: 		if (scd30.getReading(base,SENSOR_SCD30_TEMP,this)) 				{ wichSensor->reading = String(scd30.temperature); return; } break;
 		case SENSOR_SCD30_HUM: 			if (scd30.getReading(base,SENSOR_SCD30_HUM,this)) 				{ wichSensor->reading = String(scd30.humidity); return; } break;
 		#endif
-		case SENSOR_SCD4x_CO2: 			if (scd4x.getReading(base,SENSOR_SCD4x_CO2,this)) 				{ 
-			wichSensor->reading = String(scd4x.co2); 
-			//sprintf(base->outBuff,"CO2 reading (2) (float) %i",scd4x.co2);
-			//base->sckOut(PRIO_MED,true);
-			return; 
-			
-			} break;
-		case SENSOR_SCD4x_TEMP: 		if (scd4x.getReading(base,SENSOR_SCD4x_TEMP,this)) 				{ wichSensor->reading = String(scd4x.temperature); return; } break;
-		case SENSOR_SCD4x_HUM: 			if (scd4x.getReading(base,SENSOR_SCD4x_HUM,this)) 				{ wichSensor->reading = String(scd4x.humidity); return; } break;
-		case SENSOR_WIND_DIR:			if( windandrain.update(base,this,SENSOR_WIND_DIR))				{ wichSensor->reading = windandrain.windDir;return; } break;
-		case SENSOR_WIND_SPEED:			if( windandrain.update(base,this,SENSOR_WIND_SPEED))				{ wichSensor->reading = windandrain.windSpeed; return; } break;
-		case SENSOR_RAIN_ACC:			if( windandrain.update(base,this,SENSOR_RAIN_ACC))				{ wichSensor->reading = windandrain.rainAcc; return; } break;
-		case SENSOR_RAIN_EVENTACC:		if( windandrain.update(base,this,SENSOR_RAIN_EVENTACC))				{ wichSensor->reading = windandrain.rainEventAcc; return; } break;
-		case SENSOR_RAIN_TOTALACC:		if( windandrain.update(base,this,SENSOR_RAIN_TOTALACC))				{ wichSensor->reading = windandrain.rainTotalAcc; return; } break;
-		case SENSOR_RAIN_INTERVAL:		if( windandrain.update(base,this,SENSOR_RAIN_INTERVAL))				{ wichSensor->reading = windandrain.rainIntAcc; return; } break;
+		case SENSOR_SCD4x_CO2: 			if ( scd4x.getReading(base,SENSOR_SCD4x_CO2,this)) 				{ wichSensor->reading = String(scd4x.co2); return; } break;
+		case SENSOR_SCD4x_HUM: 			if ( scd4x.getReading(base,SENSOR_SCD4x_HUM,this)) 				{ wichSensor->reading = String(scd4x.humidity); return; } break;
+		case SENSOR_SCD4x_TEMP: 		if ( scd4x.getReading(base,SENSOR_SCD4x_TEMP,this)) 			{ wichSensor->reading = String(scd4x.temperature); return; } break;
+		case SENSOR_WIND_DIR:			if ( windandrain.update(base,this,SENSOR_WIND_DIR))				{ wichSensor->reading = windandrain.windDir;return; } break;
+		case SENSOR_WIND_SPEED:			if ( windandrain.update(base,this,SENSOR_WIND_SPEED))			{ wichSensor->reading = windandrain.windSpeed; return; } break;
+		case SENSOR_RAIN_ACC:			if ( windandrain.update(base,this,SENSOR_RAIN_ACC))				{ wichSensor->reading = windandrain.rainAcc; return; } break;
+		case SENSOR_RAIN_EVENTACC:		if ( windandrain.update(base,this,SENSOR_RAIN_EVENTACC))		{ wichSensor->reading = windandrain.rainEventAcc; return; } break;
+		case SENSOR_RAIN_TOTALACC:		if ( windandrain.update(base,this,SENSOR_RAIN_TOTALACC))		{ wichSensor->reading = windandrain.rainTotalAcc; return; } break;
+		case SENSOR_RAIN_INTERVAL:		if ( windandrain.update(base,this,SENSOR_RAIN_INTERVAL))		{ wichSensor->reading = windandrain.rainIntAcc; return; } break;
+		case SENSOR_ENS160_ECO2:		if ( ens160.getReading(base,this,SENSOR_ENS160_ECO2)) 			{ wichSensor->reading = String(ens160.eCO2); return; } break;
+		case SENSOR_ENS160_TVOC:		if ( ens160.getReading(base,this,SENSOR_ENS160_TVOC)) 			{ wichSensor->reading = String(ens160.tVOC); return; } break;
+		case SENSOR_ENS160_AQI:			if ( ens160.getReading(base,this,SENSOR_ENS160_AQI)) 			{ wichSensor->reading = String(ens160.AQI); return; } break;
+		case SENSOR_ENS210_TEMP:		if ( ens210.getReading(base,this,SENSOR_ENS210_TEMP)) 			{ wichSensor->reading = String(ens210.temp); return; } break;
+		case SENSOR_ENS210_ABSTEMP:		if ( ens210.getReading(base,this,SENSOR_ENS210_ABSTEMP)) 		{ wichSensor->reading = String(ens210.abstemp); return; } break;
+		case SENSOR_ENS210_HUM:			if ( ens210.getReading(base,this,SENSOR_ENS210_HUM)) 			{ wichSensor->reading = String(ens210.hum); return; } break;
 
 		default: break;
 	}
@@ -994,6 +1029,12 @@ void AuxBoards::print(SckBase* base,SensorType wichSensor,char *payload)
 
 void AuxBoards::updateDisplay(SckBase* base,SensorType wichSensor,bool force)
 {
+	#ifdef ONE_OLED
+	if (base->sensors[SENSOR_GROVE_OLED].enabled) {
+		groove_OLED.update(base,this,wichSensor,force);
+	}
+	#endif
+	#ifdef TWO_OLED
 	if (base->sensors[SENSOR_GROVE_OLED2].enabled) {
 		switch (currentDisplay) {
 			case 1: {
@@ -1016,6 +1057,7 @@ void AuxBoards::updateDisplay(SckBase* base,SensorType wichSensor,bool force)
 	} else {
 		groove_OLED.update(base,this,wichSensor,force);
 	}
+	#endif
 	
 }
 bool AuxBoards::updateGPS(SckBase* base,SensorType wichSensor)
@@ -1841,7 +1883,7 @@ void Groove_OLED::displayReading(SckBase* base,AuxBoards* auxBoard,SensorType wi
 		if (base->sensors[thisSensor].enabled &&
 				base->sensors[thisSensor].oled_display &&
 				base->sensors[thisSensor].type != SENSOR_GROVE_OLED && 		//Oled screen has nothing to show
-				base->sensors[thisSensor].type != SENSOR_GROVE_OLED2 && 		//Oled screen has nothing to show
+				// base->sensors[thisSensor].type != SENSOR_GROVE_OLED2 && 		//Oled screen has nothing to show
 				base->sensors[thisSensor].type != SENSOR_BATT_PERCENT) { 	// Battery is already shown on oled info-bar
 
 			sensorToShow = thisSensor;
@@ -3951,7 +3993,7 @@ bool Sck_SCD4x::start(SckBase* base, SensorType wichSensor,AuxBoards* auxBoard)
 	if (_debug) sparkfun_SCD4x.enableDebugging(SerialUSB);
 
 	// start the device:
-	if (!sparkfun_SCD4x.begin(auxWire, true, true, false)) {
+	if (!sparkfun_SCD4x.begin(auxWire, false, false, false)) {
 					//measBegin_________/     |     |
 					//autoCalibrate__________/      |
 					//skipStopPeriodicMeasurements_/  
@@ -3964,22 +4006,22 @@ bool Sck_SCD4x::start(SckBase* base, SensorType wichSensor,AuxBoards* auxBoard)
 
 
 	// set up Ambient pressure compensation
-	//base->sckOut("SCD41 starting pressure compensation", PRIO_MED, true);
-	// pressureCompensated=setPressureComp(base,true);
+	base->sckOut("SCD41 starting pressure compensation", PRIO_MED, true);
+	pressureCompensated=setPressureComp(base,true);
 
 	// check for automatic self Calibration;
-	/*
+	
 	if (!sparkfun_SCD4x.getAutomaticSelfCalibrationEnabled()) {
 
 		sparkfun_SCD4x.setAutomaticSelfCalibrationEnabled();
 		delay(1);
 		base->sckOut("SCD4x Automatic Self Calibration is enabled");
 	};
-	*/
+	
 	
 	// Get the first set of measurements under way 
-	//base->sckOut("SCD41 starting periodic measurements (5 sec)", PRIO_MED, true);
-	// sparkfun_SCD4x.startPeriodicMeasurement();  
+	base->sckOut("SCD41 starting periodic measurements (5 sec)", PRIO_MED, true);
+	sparkfun_SCD4x.startPeriodicMeasurement();  
 	// see begin (above) readings will be available after 5 seconds have elapsed
 	
 
@@ -4035,13 +4077,13 @@ bool Sck_SCD4x::getReading(SckBase* base,SensorType wichSensor,AuxBoards* auxBoa
 	switch (wichSensor) {
 		case SENSOR_SCD4x_CO2: {
 			co2 = sparkfun_SCD4x.getCO2();
-			sprintf(base->outBuff,"CO2 reading (1) (float) %i",co2);
-			base->sckOut(PRIO_MED,true);
+			//sprintf(base->outBuff,"CO2 reading (1) (float) %i",co2);
+			//base->sckOut(PRIO_MED,true);
 			if (co2==0) {
 				sparkfun_SCD4x.readMeasurement();
 				co2 = sparkfun_SCD4x.getCO2();
-				sprintf(base->outBuff,"CO2 reading (1a) (float) %i",co2);
-				base->sckOut(PRIO_MED,true);
+				//sprintf(base->outBuff,"CO2 reading (1a) (float) %i",co2);
+				//base->sckOut(PRIO_MED,true);
 			}
 			readcount++;		
 			break;
@@ -4226,6 +4268,203 @@ float Sck_SCD4x::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 	base->sckOut(PRIO_MED,true);
 
 	return currentOffsetTemp / 100.0; // this would be the percentage error or percentage change
+}
+
+/*
+	This version of the ENS160 class presupposes the use of an evaluation board from ScioSense
+	which has both ENS160 VOC sensor and ENS210 temp/humidity sensor on the same board.
+	The T/RH readings from ENS210 are used to continuously calibrate the ENS160.
+*/
+bool Sck_ENS160::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
+{
+	if (alreadyStarted) return true;
+	sprintf(base->outBuff,"Starting %s",base->sensors[wichSensor].title);
+	base->sckOut(PRIO_LOW,true);
+	if (auxBoard->TCAMUXMODE ) {
+		localPortNum=auxBoard->findDeviceChan(base,deviceAddress,wichSensor, true,false);
+		if (localPortNum > TCA_CHANNEL_7) {
+			localPortNum=0x00;
+			return false;	// the device was not found 
+		} else {			// even if we find a port its no good if we cannt communicate with the device
+			if (!I2Cdetect(&auxWire, deviceAddress)) return false;
+		}
+	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;	
+
+	sprintf(base->outBuff,"Device %s is accessible",base->sensors[wichSensor].title);
+	base->sckOut(PRIO_LOW,true);
+
+	if (!ss_ens160.begin(&auxWire,false,false,true)) {
+		return false;
+	} else {
+		if (ss_ens210.begin(&auxWire,true,false)) {
+			// read lastest temp and Hum from attached device on the eval board
+			if (ss_ens210.available()) {
+				ss_ens210.setSingleMode(true);
+				ens210Available=true;
+			}
+		}
+	}
+	if (ss_ens160.available()) {
+		// Print ENS160 versions
+		sprintf(base->outBuff,"\tScioSense ENS160 firmware Rev: %i ", ss_ens160.getMajorRev() );
+		base->sckOut(PRIO_MED,false);
+		sprintf(base->outBuff,".%i", ss_ens160.getMinorRev());
+		base->sckOut(PRIO_MED,false);
+		sprintf(base->outBuff,".%i", ss_ens160.getBuild());
+		base->sckOut(PRIO_MED,true);
+
+		// set operation mode to standard
+		ss_ens160.setMode(ENS160_OPMODE_STD);
+	}
+
+	alreadyStarted = true;
+	return true;
+}
+
+bool Sck_ENS160::stop()
+{
+	ss_ens160.setMode(ENS160_OPMODE_DEP_SLEEP); // set deep sleep  mode
+	alreadyStarted = false;
+	return true;
+}
+
+bool Sck_ENS160::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
+{
+	sprintf(base->outBuff,"Reading %s",base->sensors[wichSensor].title);
+	base->sckOut(PRIO_LOW,true);
+	if (auxBoard->TCAMUXMODE ) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
+			return false;
+		}
+	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
+
+	sprintf(base->outBuff,"Reading %s is accessible",base->sensors[wichSensor].title);
+	base->sckOut(PRIO_LOW,true);
+	if (millis() - lastTime > minTime) {
+		if (ens210Available && ss_ens210.available()) {
+			ss_ens210.measure();
+			ss_ens160.set_envdata210(ss_ens210.getDataT(),ss_ens210.getDataH());
+			base->sckOut("ENS210 calibration applied to ENS160",PRIO_LOW,true);
+		} else {
+			base->sckOut("ENS210 not available for calibration",PRIO_LOW,true);
+		}
+		if (ss_ens160.available()) {
+    		ss_ens160.measure(0);
+			lastTime = millis();
+			base->sckOut("ENS160 measurement requested",PRIO_LOW,true);
+		} else {
+			base->sckOut("ENS160 is not available",PRIO_LOW,true);
+			return false;
+		}
+	}
+	switch (wichSensor) {
+		case SENSOR_ENS160_ECO2: {
+			eCO2 = ss_ens160.geteCO2();
+			break;
+		}
+		case SENSOR_ENS160_TVOC: {
+			tVOC = ss_ens160.getTVOC();
+			break;
+		}
+		case SENSOR_ENS160_AQI: {
+			AQI = ss_ens160.getAQI();
+			break;
+		}
+		default: {
+			return false;
+			break;
+
+		}
+	}
+	return true;
+}
+bool Sck_ENS210::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
+{
+	if (alreadyStarted) return true;
+	sprintf(base->outBuff,"Starting %s",base->sensors[wichSensor].title);
+	base->sckOut(PRIO_LOW,true);
+	if (auxBoard->TCAMUXMODE ) {
+		localPortNum=auxBoard->findDeviceChan(base,deviceAddress,wichSensor, true,false);
+		if (localPortNum > TCA_CHANNEL_7) {
+			localPortNum=0x00;
+			return false;	// the device was not found 
+		} else {			// even if we find a port its no good if we cannt communicate with the device
+			if (!I2Cdetect(&auxWire, deviceAddress)) return false;
+		}
+	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;	
+
+	sprintf(base->outBuff,"Device %s is accessible",base->sensors[wichSensor].title);
+	base->sckOut(PRIO_LOW,true);
+
+	if (!ss_ens210.begin(&auxWire,true,false)) {
+		return false;
+	} else {
+		if (ss_ens210.available()) {
+			ss_ens210.setSingleMode(false);	// continuous mode
+		}
+	
+	}
+
+	alreadyStarted = true;
+	return true;
+}
+
+bool Sck_ENS210::stop()
+{
+	ss_ens210.setSingleMode(true);		// turn OFF continuous mode
+	alreadyStarted = false;
+	return true;
+}
+
+bool Sck_ENS210::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
+{
+	sprintf(base->outBuff,"Reading %s",base->sensors[wichSensor].title);
+	base->sckOut(PRIO_LOW,true);
+	if (auxBoard->TCAMUXMODE ) {
+		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
+			return false;
+		}
+	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
+
+	sprintf(base->outBuff,"Reading %s is accessible",base->sensors[wichSensor].title);
+	base->sckOut(PRIO_LOW,true);
+	if (millis() - lastTime > minTime) {
+		if (ss_ens210.available()) {
+			ss_ens210.measure();
+			base->sckOut("ENS210 measurement requested",PRIO_LOW,true);
+		} else {
+			base->sckOut("ENS210 not available for measurement",PRIO_LOW,true);
+			return false;
+		}
+		
+	}
+
+	switch (wichSensor) {
+		case SENSOR_ENS210_TEMP: {
+			temp = ss_ens210.getTempCelsius();
+			break;
+		}
+		case SENSOR_ENS210_ABSTEMP: {
+			abstemp = ss_ens210.getTempKelvin();
+			break;
+		}
+		case SENSOR_ENS210_HUM: {
+			hum = ss_ens210.getHumidityPercent();
+			break;
+		}
+		/*
+		case SENSOR_ENS210_ABSHUM: {
+			hum = ens210.getAbsoluteHumidityPercent();
+			break;
+		}
+		*/
+		default: {
+			return false;
+			break;
+
+		}
+	}
+	return true;
 }
 
 // BP: I cannot find a reference (call) in this file to this function in this file - is it redundant ?

@@ -163,13 +163,14 @@ uint8_t SckBase::listMuxChanMap(SckBase* base) {
 }
 void SckBase::update()
 {
-	//sckOut("SckBase:update start",PRIO_MED,true);
+	
+	sckOut("SckBase:update start",PRIO_MED,true);
 	// This is where the system controls actions such as periodically updating sensors
 	if (millis() - reviewStateMillis > 250) {
 		reviewStateMillis = millis();
-		//sckOut("SckBase:update reviewState called",PRIO_LOW,true);
+		sckOut("SckBase:update reviewState called",PRIO_LOW,true);
 		reviewState();
-		//sckOut("SckBase:update reviewState returned",PRIO_LOW,true);
+		sckOut("SckBase:update reviewState returned",PRIO_LOW,true);
 	}
 
 	if (millis() - updatePowerMillis > 1000) {
@@ -247,11 +248,11 @@ void SckBase::update()
 			updateDisplayMillis=millis();
 			// mirrored displays (temporary)
 			if (sensors[SENSOR_GROVE_OLED].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED,false);
-			if (sensors[SENSOR_GROVE_OLED2].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2,false);
+			// if (sensors[SENSOR_GROVE_OLED2].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2,false);
 		}
 
 	}
-	//sckOut("SckBase:update end",PRIO_MED,true);
+	sckOut("SckBase:update done",PRIO_MED,true);
 }
 
 // **** Mode Control
@@ -273,6 +274,7 @@ void SckBase::reviewState()
 	/* receiveMessage() */
 	/* sdDetect() */
 	/* buttonEvent(); */
+	sckOut("::reviewState::",PRIO_MED,true);
 
 	if (st.onShell) {
 
@@ -536,9 +538,12 @@ void SckBase::enterSetup()
 }
 
 // **** Input
+
+// this function is called on Interrupt from SerialUSB.  It is called from smartcitizenkit.ino.
 void SckBase::inputUpdate()
 {
 
+	sckOut("base::inputUpdate",PRIO_MED,true);
 	if (SerialUSB.available()) {
 
 		char buff = SerialUSB.read();
@@ -553,10 +558,14 @@ void SckBase::inputUpdate()
 			serialBuff.replace("\r", "");
 			serialBuff.trim();
 
+			sckOut("base::inputUpdate: calling ::In function (a)", PRIO_MED,true);
 			commands.in(this, serialBuff);		// Process input
+			sckOut("base::inputUpdate: returned from ::In function (1)", PRIO_MED,true);
 			if (blen > 0) previousCommand = serialBuff;
 			serialBuff = "";
+			sckOut("base::inputUpdate: command prompt function called (1a)", PRIO_MED,true);
 			prompt();
+			sckOut("base::inputUpdate: command prompt displayed (2)", PRIO_MED,true);
 
 			// Backspace
 		} else if (buff == 127) {
@@ -585,15 +594,18 @@ void SckBase::inputUpdate()
 			SerialUSB.print(buff);				// Echo
 
 		}
+	} else {
+		sckOut("base::inputUpdate: No input available (3)", PRIO_MED,true);
 	}
-
+	sckOut("base::inputUpdate: calling ESPbusUpdate (4)", PRIO_MED,true);
 	ESPbusUpdate();
+	sckOut("base::inputUpdate: returned from calling ESPbusUpdate (5)", PRIO_MED,true);
 }
 
 // **** Output
 void SckBase::sckOut(String strOut, PrioLevels priority, bool newLine)
 {
-	/*
+	
 	if (strOut.equals(outBuff)) {
 		outRepetitions++;
 		if (outRepetitions >= 10) {
@@ -602,13 +614,14 @@ void SckBase::sckOut(String strOut, PrioLevels priority, bool newLine)
 		}
 		return;
 	}
-	*/
+	
 	outRepetitions = 0;
 	strOut.toCharArray(outBuff, strOut.length()+1);
 	sckOut(priority, newLine);
 }
 void SckBase::sckOut(const char *strOut, PrioLevels priority, bool newLine)
 {
+	
 	if (strncmp(strOut, outBuff, strlen(strOut)) == 0) {
 		outRepetitions++;
 		if (outRepetitions >= 10) {
@@ -617,6 +630,7 @@ void SckBase::sckOut(const char *strOut, PrioLevels priority, bool newLine)
 		}
 		return;
 	}
+	
 	outRepetitions = 0;
 	strncpy(outBuff, strOut, 240);
 	sckOut(priority, newLine);
@@ -650,6 +664,10 @@ void SckBase::sckOut(PrioLevels priority, bool newLine)
 
 	if (config.debug.oled) {
 		if (sensors[SENSOR_GROVE_OLED].enabled) {
+			auxBoards.print(this,SENSOR_GROVE_OLED,outBuff);		// just 1: original 
+			currentDisplay=1;
+		}
+		/*
 			if (sensors[SENSOR_GROVE_OLED2].enabled) {		// twin displays fitted
 				switch (currentDisplay) {
 					case 1: {
@@ -672,6 +690,7 @@ void SckBase::sckOut(PrioLevels priority, bool newLine)
 			auxBoards.print(this,SENSOR_GROVE_OLED2,outBuff);
 			currentDisplay=2;
 		}
+		*/
 	}
 }
 void SckBase::prompt()
@@ -747,7 +766,7 @@ void SckBase::saveConfig(bool defaults)
 	// This means that if you want to make sensor state persistent you have to change explicitly config.sensors
 
 	eepromConfig.write(config);
-	sckOut("Saved configuration on eeprom!!", PRIO_LOW);
+	sckOut("saveConfig: Saved configuration on eeprom!!", PRIO_MED);
 	lastUserEvent = millis();
 
 	// Update state
@@ -757,6 +776,8 @@ void SckBase::saveConfig(bool defaults)
 	st.tokenError = false;
 	st.wifiStat.reset();
 
+	sckOut("saveConfig: State Changed: Wifi Reset",PRIO_MED,true);
+
 	uint32_t now = rtc.getEpoch();
 	lastPublishTime = now - config.publishInterval;
 	lastSensorUpdate = now - config.readInterval;
@@ -765,7 +786,7 @@ void SckBase::saveConfig(bool defaults)
 
 	if (st.wifiSet || st.tokenSet) pendingSyncConfig = true;
 
-	// Decide if new mode its valid
+	// Decide if new mode is valid
 	if (st.mode == MODE_NET) {
 
 		if (st.wifiSet && st.tokenSet) {
@@ -775,7 +796,9 @@ void SckBase::saveConfig(bool defaults)
 			st.onSetup = false;
 			led.update(led.BLUE, led.PULSE_SOFT);
 			st.error = ERROR_NONE;
+			sckOut("saveConfig: State Changed: ESP Reboot requested",PRIO_MED,true);
 			ESPcontrol(ESP_REBOOT);
+			sckOut("saveConfig: State Changed: ESP Reboot completed",PRIO_MED,true);
 
 		} else {
 
@@ -796,7 +819,13 @@ void SckBase::saveConfig(bool defaults)
 
 	}
 
-	if (pendingSyncConfig && !st.espON) ESPcontrol(ESP_ON);
+	if (pendingSyncConfig && !st.espON) {
+		sckOut("saveConfig: State Changed: ESP turning ON",PRIO_MED,true);
+		ESPcontrol(ESP_ON);
+		sckOut("saveConfig: State Changed: ESP turned ON",PRIO_MED,true);
+	} else {
+		sckOut("saveConfig: State Changed: ESP already turned ON",PRIO_MED,true);
+	}
 }
 Configuration SckBase::getConfig()
 {
@@ -1454,7 +1483,7 @@ void SckBase::updatePower()
 				st.error = ERROR_BATT;
 				// mirror displays temporary
 				if (sensors[SENSOR_GROVE_OLED].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED, true);// Force update of screen before going to sleep
-				if (sensors[SENSOR_GROVE_OLED2].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2, true);// Force update of screen before going to sleep
+				//if (sensors[SENSOR_GROVE_OLED2].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2, true);// Force update of screen before going to sleep
 
 				//auxBoards.updateDisplay(this,SENSOR_GROVE_OLED, true); 		// Force update of screen before going to sleep
 				//auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2, true); 		// Force update of screen before going to sleep
@@ -1603,7 +1632,8 @@ void SckBase::sleepLoop()
 		// If we have a screen update it
 		// mirrored displays (temporary)
 		if (sensors[SENSOR_GROVE_OLED].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED, true);
-		if (sensors[SENSOR_GROVE_OLED2].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2, true);
+
+		// if (sensors[SENSOR_GROVE_OLED2].enabled) auxBoards.updateDisplay(this,SENSOR_GROVE_OLED2, true);
 
 		now = rtc.getEpoch();
 	}
@@ -1685,6 +1715,8 @@ void SckBase::updateSensors()
 					(st.dynamic && ((lastSensorUpdate - wichSensor->lastReadingTime) >= dynamicInterval))) { 	// Is time to read it?
 
 					wichSensor->lastReadingTime = lastSensorUpdate; 	// Update sensor reading time
+					sprintf(outBuff,"Base::updateSensors :: Reading sensor %s", wichSensor->title);
+					sckOut(PRIO_MED,true);
 					if (!getReading(wichSensor)) {
 						sprintf(outBuff, "Adding %s to pending sensor list", wichSensor->title);
 						sckOut(PRIO_MED,true);
@@ -1887,6 +1919,8 @@ bool SckBase::disableSensor(SckBase *base, SensorType wichSensor)
 }
 bool SckBase::getReading(OneSensor *wichSensor)
 {
+	sprintf(outBuff,"Base::getReading %s", wichSensor->title);
+	sckOut(PRIO_MED,true);
 	switch (wichSensor->location) {
 		case BOARD_BASE:
 		{
@@ -1913,11 +1947,11 @@ bool SckBase::getReading(OneSensor *wichSensor)
 		case BOARD_URBAN:
 		{
 			//sckOut("Base:getReading: BOARD_URBAN", PRIO_LOW,true);
-			//sprintf(outBuff, "Reading requested from %s", wichSensor->title);
-			//sckOut(PRIO_MED,true);
+			sprintf(outBuff, "Reading requested from %s", wichSensor->title);
+			sckOut(PRIO_MED,true);
 			urban.getReading(this, wichSensor);
-			//sprintf(outBuff, "Returned from taking a reading from %s", wichSensor->title);
-			//sckOut(PRIO_MED,true);
+			sprintf(outBuff, "Returned from taking a reading from %s", wichSensor->title);
+			sckOut(PRIO_MED,true);
 			break;
 		}
 		case BOARD_AUX:

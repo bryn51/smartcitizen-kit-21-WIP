@@ -83,14 +83,13 @@ void SckUrban::getReading(SckBase *base, OneSensor *wichSensor)
 		case SENSOR_LIGHT:			if (sck_bh1730fvc.get()) 			{ wichSensor->reading = String(sck_bh1730fvc.reading); return; } break;
 		case SENSOR_TEMPERATURE: 		if (sck_sht31.getReading()) 			{ wichSensor->reading = String(sck_sht31.temperature); return; } break;
 		case SENSOR_HUMIDITY: 			if (sck_sht31.getReading()) 			{ wichSensor->reading = String(sck_sht31.humidity); return; } break;
-		case SENSOR_NOISE_DBA: 			if (sck_noise.getReading(base,SENSOR_NOISE_DBA)) 	{ wichSensor->reading = String(sck_noise.readingDB); return; } break;
+		case SENSOR_NOISE_DBA: 			if (sck_noise.getReading(base,SENSOR_NOISE_DBA)) {  wichSensor->reading = String(sck_noise.readingDB);  return;	}  break;
 		case SENSOR_NOISE_DBC: 			if (sck_noise.getReading(base,SENSOR_NOISE_DBC)) 	{ wichSensor->reading = String(sck_noise.readingDB); return; } break;
 		case SENSOR_NOISE_DBZ: 			if (sck_noise.getReading(base,SENSOR_NOISE_DBZ)) 	{ wichSensor->reading = String(sck_noise.readingDB); return; } break;
 		case SENSOR_NOISE_FFT: 			if (sck_noise.getReading(base,SENSOR_NOISE_FFT)) 	{
-								// TODO find a way to give access to readingsFFT instead of storing them on a String (too much RAM)
-								// For now it just prints the values to console
 								for (uint16_t i=1; i<sck_noise.FFT_NUM; i++) SerialUSB.println(sck_noise.readingFFT[i]);
-								return;
+								return;// TODO find a way to give access to readingsFFT instead of storing them on a String (too much RAM)
+								// For now it is disabled; but can be enbled and run manually via UI
 							}
 		case SENSOR_CCS811_VOCS:		if (sck_ccs811.getReading(base)) 		{ wichSensor->reading = String(sck_ccs811.VOCgas); return; } break;
 		case SENSOR_CCS811_ECO2:		if (sck_ccs811.getReading(base)) 		{ wichSensor->reading = String(sck_ccs811.ECO2gas); return; } break;
@@ -109,6 +108,9 @@ void SckUrban::getReading(SckBase *base, OneSensor *wichSensor)
 		default: break;
 	}
 	
+	base->sckOut("URBAN getReading fell through (eg failed) to the end for ",PRIO_MED,false);
+	sprintf(base->outBuff,"sensor %s",base->sensors[wichSensor->type].title);
+	base->sckOut(PRIO_MED,true);
 	wichSensor->reading = "null";
 	wichSensor->state = -1;
 }
@@ -511,7 +513,7 @@ bool Sck_Noise::start()
 	if (!I2S.begin(I2S_PHILIPS_MODE, sampleRate, 32)) return false;
 
 	uint32_t startPoint = millis();
-	while (millis() - startPoint < 200) I2S.read();
+	while (millis() - startPoint < 250) I2S.read();
 
 	alreadyStarted = true;
 	return true;
@@ -524,25 +526,31 @@ bool Sck_Noise::stop()
 }
 bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 {
+	//uint32_t testtimer=micros();
+	base->sckOut("Noise:GR",PRIO_MED,true);
 
-	//base->sckOut("sckNoise:getReading",PRIO_MED,true);
+	//if (!I2S.begin(I2S_PHILIPS_MODE, sampleRate, 32)) return false;  (moved to ::start)
 
-	//if (!I2S.begin(I2S_PHILIPS_MODE, sampleRate, 32)) return false;
+	
+	base->sckOut("priming I2S port ... ",PRIO_MED,false);
+	//uint32_t testtimer2=micros();
 
-	// Wait 263000 I2s cycles or 85 ms at 441000 hz
-	//base->sckOut("sckNoise:getReading started priming of I2S port",PRIO_LOW,true);
 	uint32_t startPoint = millis();
-	while (millis() - startPoint < 100) I2S.read();
-	//while (millis() - startPoint < 250) I2S.read();
-	//base->sckOut("sckNoise:getReading finished priming of I2S port",PRIO_LOW,true);
+	// Wait 263000 I2s cycles or 85 ms at 441000 hz
+	while (millis() - startPoint < 250)  I2S.read();
+	
+	sprintf(base->outBuff, ":: finished priming I2S ::");
+	base->sckOut(PRIO_MED,true); 
+	
 
 	// receive buffer
-	// could this be causing a memory issue ?  There are 512 4 byte samples.... so... 2 KBytes  allocated on the heap ?
-	// int32_t source[SAMPLE_NUM];		:: moved to sckUrban.h			
+	// could this be causing a memory overwrite issue ?  There are 512 4 byte samples.... so... 2 KBytes  allocated on the heap ?
+	// int32_t source[SAMPLE_NUM];		:: possible soution:  moved to sckUrban.h	
+
 	uint16_t bufferIndex = 0;
 
 	startPoint = millis();
-	uint8_t timeOut = 30; 	// (ms) Timeout to avoid hangs if the I2S is not responding
+	uint8_t timeOut = 30; 	// (ms) Timeout to avoid hangs if the I2S is not responding :: this does not work.  It still hangs; but its on I2S.end();
 	// Fill buffer with samples from I2S bus
 	//base->sckOut("sckNoise:getReading beginning I2S data reception",PRIO_LOW,true);
 	while (bufferIndex < SAMPLE_NUM) {
@@ -553,11 +561,11 @@ bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 		}
 
 		if (millis() - startPoint > timeOut) {
-			I2S.end();
+			//I2S.end();		// once :: not sure if this should stay or go.
 			return false;
 		}
 	}
-	//I2S.end();
+	//I2S.end();		// twice
 	//base->sckOut("sckNoise:getReading ended I2S data reception",PRIO_LOW,true);
 
 	// Get the average of recorded samples
@@ -626,7 +634,7 @@ bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 			else SerialUSB.println();
 		}
 	}
-	//base->sckOut("sckNoise:getReading finished calculating RMS: All done",PRIO_MED,true);
+	base->sckOut("Sck_Noise:getReading: All done",PRIO_MED,true);
 
 	return true;
 }
