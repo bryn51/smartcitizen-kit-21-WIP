@@ -527,19 +527,19 @@ bool Sck_Noise::stop()
 bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 {
 	//uint32_t testtimer=micros();
-	base->sckOut("Noise:GR",PRIO_MED,true);
+	base->sckOut("Noise:",PRIO_MED,true);
 
 	//if (!I2S.begin(I2S_PHILIPS_MODE, sampleRate, 32)) return false;  (moved to ::start)
 
 	
-	base->sckOut("priming I2S port ... ",PRIO_MED,false);
+	//base->sckOut("priming I2S port ... ",PRIO_MED,false);
 	//uint32_t testtimer2=micros();
 
 	uint32_t startPoint = millis();
 	// Wait 263000 I2s cycles or 85 ms at 441000 hz
 	while (millis() - startPoint < 250)  I2S.read();
 	
-	sprintf(base->outBuff, ":: finished priming I2S ::");
+	//sprintf(base->outBuff, ":: finished priming I2S ::");
 	base->sckOut(PRIO_MED,true); 
 	
 
@@ -634,7 +634,7 @@ bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 			else SerialUSB.println();
 		}
 	}
-	base->sckOut("Sck_Noise:getReading: All done",PRIO_MED,true);
+	//base->sckOut("Sck_Noise:getReading: All done",PRIO_MED,true);
 
 	return true;
 }

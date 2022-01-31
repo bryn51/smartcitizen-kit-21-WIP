@@ -1132,10 +1132,10 @@ uint8_t AuxBoards::tcaDiscoverAMux(SckBase* base,TwoWire *_Wire) {
 	for( address = 0x70; address < 0x78; address++ ) {	
 		if (!I2Cdetect(_Wire, address)) {
 			sprintf(base->outBuff, "An I2C Mux was NOT discovered at address (0x%02x) ", address);
-			base->sckOut(PRIO_MED,true);
+			base->sckOut(PRIO_LOW,true);
 		} else {
 			sprintf(base->outBuff, "An I2C Mux was discovered at address (0x%02x) ", address);
-			base->sckOut(PRIO_MED,true);
+			base->sckOut(PRIO_LOW,true);
 			return address;
 		}
 	}
@@ -1233,7 +1233,7 @@ uint8_t AuxBoards::listMuxChanMap(SckBase* base) {
 
 void AuxBoards::testMuxChanMap(SckBase* base) {
 	
-	base->sckOut("::testing connectivity to each Address found on the AuxBus I2c MUX::\r\n",PRIO_MED,true);
+	base->sckOut("Testing each Address found on the AuxBus I2c MUX::\r\n",PRIO_MED,true);
 	I2C_MuxChannel mc;
 	//byte chan=0x00;
 	byte status=TCA.readStatus();
@@ -1571,7 +1571,7 @@ bool Groove_OLED::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
 
 	sprintf(base->outBuff, "Disply %s started at address 0x%02x",base->sensors[wichSensor].title,deviceAddress);
-	base->sckOut(PRIO_MED,true);
+	base->sckOut(PRIO_LOW,true);
 	
 	u8g2_oled.setBusClock(1000000); 	// 1000000 -> 68 ms for a full buffer redraw
 	u8g2_oled.begin();
@@ -1662,8 +1662,8 @@ void Groove_OLED::printLine(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 }
 void Groove_OLED::update(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor, bool force)
 {
-	sprintf(base->outBuff, "%s update: Addr: 0x%02x Chan: 0x%02x",base->sensors[wichSensor].title,deviceAddress,localPortNum);
-	base->sckOut(PRIO_MED,true);
+	//sprintf(base->outBuff, "%s update: Addr: 0x%02x Chan: 0x%02x",base->sensors[wichSensor].title,deviceAddress,localPortNum);
+	//base->sckOut(PRIO_MED,true);
 
 	if (auxBoard->TCAMUXMODE) {
 		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
@@ -3949,11 +3949,12 @@ float Sck_SCD30::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 	return currentOffsetTemp / 100.0;
 }
 #endif
-// Added by Bryn Parrott for SCS V3
+
+// SCD4x: Added by Bryn Parrott for SCS V3
 // bryn.parrott@gmail.com; 20211219 @ Taichung, Taiwan ROC
 /*
-	SCD4x sensors collect CO2; Humidity; Temperature Readings.
-	The SCD41 version provides single shot mode (but we are not using it)
+	SCD4x sensors collect CO2; Humidity; Temperature Readings. (We use only CO2)
+
 	If The sensor receives regular updated of Barometric Pressure; Readings can be more accurate.
 
 	The Sensor can automatically initiate readings every 5 seconds or every 30 seconds.
@@ -3961,63 +3962,52 @@ float Sck_SCD30::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 
 	we are using automatic interval readings; not single shot (it's simpler to implent)
 */
-
 bool Sck_SCD4x::start(SckBase* base, SensorType wichSensor,AuxBoards* auxBoard)
 {
-	// If we are using a I2C port MUX; then the Port must be enabled prior to calling this library
+	// If we are using a I2C port MUX; then the Port must be enabled prior to calling functions in this library
 	if (auxBoard->TCAMUXMODE ) {
 		localPortNum=auxBoard->findDeviceChan(base,deviceAddress,wichSensor, true,true);
 		if (localPortNum > TCA_CHANNEL_7) {
 			localPortNum=0x00;
 			return false;	// the device was not found 
-		} else {			// even if we find a port its no good if we cannt communicate with the device
+		} else {			// test to confirm that we can comunicate with the device
 			if (!I2Cdetect(&auxWire, deviceAddress)) return false;
 		}
-	} else if (!I2Cdetect(&auxWire, deviceAddress)) {
+	} else if (!I2Cdetect(&auxWire, deviceAddress)) {		// (non-mux pathway)
 		return false;
 	}
 
 	if (started) {
-		
 		// Mark this metric as enabled (and not again conduct the other setup tasks, unnecessary)
 		// this device is used to read 3 different measurements; each one needs to be enabled.
 		for (uint8_t i=0; i<3; i++) if (enabled[i][0] == wichSensor) enabled[i][1] = 1;
 		return true;
 	}
 
-	// *** In SCK we use automatic periodical measurements.  
-	// The Interval setting allows swap between interval of 5 seconds and 30 seconds
-
-	// (re) instantiate the library
-
+	// The Interval setting allows swap between normal interval of 5 seconds and low power readings 30 seconds
 	if (_debug) sparkfun_SCD4x.enableDebugging(SerialUSB);
 
-	// start the device:
+	// start the device (library):
 	if (!sparkfun_SCD4x.begin(auxWire, false, false, false)) {
-					//measBegin_________/     |     |
-					//autoCalibrate__________/      |
-					//skipStopPeriodicMeasurements_/  
-		//base->sckOut("SCD41 library NOT initiated", PRIO_MED, true);
+						//measBegin_-____/     |       |
+						//autoCalibrate________/       |
+						//skipStopPeriodicMeasurements_/  
 		return false;
-	//} else  {
-		// base->sckOut("SCD41 library initiated", PRIO_MED, true);
 	}
 
-
-
 	// set up Ambient pressure compensation
-	base->sckOut("SCD41 starting pressure compensation", PRIO_MED, true);
-	pressureCompensated=setPressureComp(base,true);
+	//base->sckOut("SCD41 starting pressure compensation", PRIO_MED, true);
+	//pressureCompensated=setPressureComp(base,true);
 
-	// check for automatic self Calibration;
-	
+	// set for automatic self Calibration;
+	/*
 	if (!sparkfun_SCD4x.getAutomaticSelfCalibrationEnabled()) {
 
 		sparkfun_SCD4x.setAutomaticSelfCalibrationEnabled();
 		delay(1);
 		base->sckOut("SCD4x Automatic Self Calibration is enabled");
 	};
-	
+	*/
 	
 	// Get the first set of measurements under way 
 	base->sckOut("SCD41 starting periodic measurements (5 sec)", PRIO_MED, true);
@@ -4037,7 +4027,7 @@ bool Sck_SCD4x::start(SckBase* base, SensorType wichSensor,AuxBoards* auxBoard)
 bool Sck_SCD4x::stop(SckBase* base,SensorType wichSensor,AuxBoards* auxBoard)
 {
 	
-	// Mark this specific metric as disabled for all measurements from the sensor
+	// Mark this specific metric as disabled
 	for (uint8_t i=0; i<3; i++) if (enabled[i][0] == wichSensor) enabled[i][1] = 0;
 
 	// Turn sensor off only if all 3 metrics are disabled
@@ -4060,46 +4050,27 @@ bool Sck_SCD4x::getReading(SckBase* base,SensorType wichSensor,AuxBoards* auxBoa
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) {
 		return false;
 	}
-	// if there is a reading waiting to be read: read it
-	// NOTE : The Library will automatically trigger a new readMeasurement() if the current CO2 reading has previously been read
-	// 
-	/*
-	if (readcount > 2) {
-		// apply pressure compensation and temp offset every 3 times we come here
-		pressureCompensated=setPressureComp(base,true);
-		float changePct=tempOffset(base,auxBoard, wichSensor,0, true);
-		if (changePct > 1.0) {
-			base->sckOut("Temperature compensation adjusted");
-		}
-		readcount=0;
-	}
-	*/
+
+	// NOTE : The Library will automatically trigger a new readMeasurement() if the current xx reading has previously been read
 	switch (wichSensor) {
 		case SENSOR_SCD4x_CO2: {
 			co2 = sparkfun_SCD4x.getCO2();
-			//sprintf(base->outBuff,"CO2 reading (1) (float) %i",co2);
-			//base->sckOut(PRIO_MED,true);
 			if (co2==0) {
 				sparkfun_SCD4x.readMeasurement();
 				co2 = sparkfun_SCD4x.getCO2();
-				//sprintf(base->outBuff,"CO2 reading (1a) (float) %i",co2);
-				//base->sckOut(PRIO_MED,true);
+				
 			}
-			readcount++;		
 			break;
 		}
 		case SENSOR_SCD4x_TEMP: {
-			temperature = sparkfun_SCD4x.getTemperature();	// The Library will trigger a new readMeasurement() if the current temp reading has previously been read
-			readcount++;
+			temperature = sparkfun_SCD4x.getTemperature();	
 			break;
 		}
 		case SENSOR_SCD4x_HUM: {
-			humidity = sparkfun_SCD4x.getHumidity();	// The Library will trigger a new readMeasurement() if the current Hum reading has previously been read
-			readcount++;
+			humidity = sparkfun_SCD4x.getHumidity();
 			break;
 		}
 		default: {
-			//base->sckOut("SCD4x: Unrecognised request");
 			return false;
 			break;
 		}
@@ -4168,10 +4139,6 @@ bool Sck_SCD4x::setPressureComp(SckBase* base,bool value) {
 					sprintf(base->outBuff,"SCD4x Pressure Compensation updated : %03.02f kPa",pressureReading);
 					base->sckOut(PRIO_MED,true);
 					comp = true;
-				//} else {
-					//sprintf(base->outBuff,"Pressure Compensation NOT updated (out of limits) : %i ",pressureInMillibar);
-					//base->sckOut(PRIO_LOW,true);
-
 				}
 			}
 		}
@@ -4208,7 +4175,7 @@ uint16_t Sck_SCD4x::forcedRecalFactor(SckBase* base,AuxBoards* auxBoard,SensorTy
 	if (newFactor >= 400 && newFactor <= 2000) {
 		// Maybe not needed, but done for safety
 		sparkfun_SCD4x.setAutomaticSelfCalibrationEnabled(false);
-		delay(1);	// mandatory delay (see library)
+		
 		// force a recalibration: Send command to SCD4x
 		FRCCorrection=sparkfun_SCD4x.performForcedRecalibration(newFactor);
 		sprintf(base->outBuff,"SCD41 forced recalibration activated.  FRCCorrection factor : %f",FRCCorrection);
@@ -4225,7 +4192,7 @@ float Sck_SCD4x::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 	float lastTemperatureReading=0.00;
 	// We expect from user the REAL temperature measured during calibration
 	// the temperature readings from this device may vary due to internal heating of the device (CO2 sensor)
-	// We calculate the difference against the trusted sensor measured temperature to set the correct offset. 
+	// We calculate the difference against the trusted sensor temperature to set the correct offset. 
 	// if the user does not supply a temperature then we check current system temperature 
 	// and use that instead.
 	// Please wait for sensor to stabilize temperatures before aplying an offset.
@@ -4238,7 +4205,7 @@ float Sck_SCD4x::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 
 	currentOffsetTemp = sparkfun_SCD4x.getTemperatureOffset(); // The SCD4x library works differently than SCD30
 
-	// Ambient temperature correction using either PN Board Dallas Temp probe (outside air) 
+	// Ambient temperature correction using either PM Board Dallas Temp probe (outside air) 
 	// or Urban Board Temperature sensor  (Dallas is more accurate if it is installed)
 	// we set Ambient temperature offset at the beginning and after every reading
 	// this should help attain highest accuracy possible
@@ -4255,7 +4222,6 @@ float Sck_SCD4x::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 	// alternative: get the last reading 
 	OneSensor *thisTemperatureSensor = &base->sensors[SENSOR_SCD4x_TEMP];
 	lastTemperatureReading=thisTemperatureSensor->reading.toFloat();
-	
 
 	if (abs(userTemp) > 0.001 && lastTemperatureReading != userTemp) {
 		sparkfun_SCD4x.setTemperatureOffset(lastTemperatureReading - userTemp);
@@ -4278,8 +4244,7 @@ float Sck_SCD4x::tempOffset(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 bool Sck_ENS160::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (alreadyStarted) return true;
-	sprintf(base->outBuff,"Starting %s",base->sensors[wichSensor].title);
-	base->sckOut(PRIO_LOW,true);
+
 	if (auxBoard->TCAMUXMODE ) {
 		localPortNum=auxBoard->findDeviceChan(base,deviceAddress,wichSensor, true,false);
 		if (localPortNum > TCA_CHANNEL_7) {
@@ -4289,9 +4254,6 @@ bool Sck_ENS160::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 			if (!I2Cdetect(&auxWire, deviceAddress)) return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;	
-
-	sprintf(base->outBuff,"Device %s is accessible",base->sensors[wichSensor].title);
-	base->sckOut(PRIO_LOW,true);
 
 	if (!ss_ens160.begin(&auxWire,false,false,true)) {
 		return false;
@@ -4305,14 +4267,6 @@ bool Sck_ENS160::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 		}
 	}
 	if (ss_ens160.available()) {
-		// Print ENS160 versions
-		sprintf(base->outBuff,"\tScioSense ENS160 firmware Rev: %i ", ss_ens160.getMajorRev() );
-		base->sckOut(PRIO_MED,false);
-		sprintf(base->outBuff,".%i", ss_ens160.getMinorRev());
-		base->sckOut(PRIO_MED,false);
-		sprintf(base->outBuff,".%i", ss_ens160.getBuild());
-		base->sckOut(PRIO_MED,true);
-
 		// set operation mode to standard
 		ss_ens160.setMode(ENS160_OPMODE_STD);
 	}
@@ -4330,30 +4284,23 @@ bool Sck_ENS160::stop()
 
 bool Sck_ENS160::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
-	sprintf(base->outBuff,"Reading %s",base->sensors[wichSensor].title);
-	base->sckOut(PRIO_LOW,true);
+	//sprintf(base->outBuff,"Reading %s",base->sensors[wichSensor].title);
+	//base->sckOut(PRIO_LOW,true);
 	if (auxBoard->TCAMUXMODE ) {
 		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
 
-	sprintf(base->outBuff,"Reading %s is accessible",base->sensors[wichSensor].title);
-	base->sckOut(PRIO_LOW,true);
 	if (millis() - lastTime > minTime) {
 		if (ens210Available && ss_ens210.available()) {
 			ss_ens210.measure();
 			ss_ens160.set_envdata210(ss_ens210.getDataT(),ss_ens210.getDataH());
-			base->sckOut("ENS210 calibration applied to ENS160",PRIO_LOW,true);
-		} else {
-			base->sckOut("ENS210 not available for calibration",PRIO_LOW,true);
 		}
 		if (ss_ens160.available()) {
     		ss_ens160.measure(0);
 			lastTime = millis();
-			base->sckOut("ENS160 measurement requested",PRIO_LOW,true);
 		} else {
-			base->sckOut("ENS160 is not available",PRIO_LOW,true);
 			return false;
 		}
 	}
@@ -4381,20 +4328,16 @@ bool Sck_ENS160::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 bool Sck_ENS210::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (alreadyStarted) return true;
-	sprintf(base->outBuff,"Starting %s",base->sensors[wichSensor].title);
-	base->sckOut(PRIO_LOW,true);
+
 	if (auxBoard->TCAMUXMODE ) {
 		localPortNum=auxBoard->findDeviceChan(base,deviceAddress,wichSensor, true,false);
 		if (localPortNum > TCA_CHANNEL_7) {
 			localPortNum=0x00;
 			return false;	// the device was not found 
-		} else {			// even if we find a port its no good if we cannt communicate with the device
+		} else {			// test device communications
 			if (!I2Cdetect(&auxWire, deviceAddress)) return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;	
-
-	sprintf(base->outBuff,"Device %s is accessible",base->sensors[wichSensor].title);
-	base->sckOut(PRIO_LOW,true);
 
 	if (!ss_ens210.begin(&auxWire,true,false)) {
 		return false;
@@ -4418,22 +4361,17 @@ bool Sck_ENS210::stop()
 
 bool Sck_ENS210::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
-	sprintf(base->outBuff,"Reading %s",base->sensors[wichSensor].title);
-	base->sckOut(PRIO_LOW,true);
+
 	if (auxBoard->TCAMUXMODE ) {
 		if ( !auxBoard->openChannel(base,deviceAddress,localPortNum,false)) {
 			return false;
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
 
-	sprintf(base->outBuff,"Reading %s is accessible",base->sensors[wichSensor].title);
-	base->sckOut(PRIO_LOW,true);
 	if (millis() - lastTime > minTime) {
 		if (ss_ens210.available()) {
 			ss_ens210.measure();
-			base->sckOut("ENS210 measurement requested",PRIO_LOW,true);
 		} else {
-			base->sckOut("ENS210 not available for measurement",PRIO_LOW,true);
 			return false;
 		}
 		
@@ -4452,12 +4390,10 @@ bool Sck_ENS210::getReading(SckBase* base,AuxBoards* auxBoard,SensorType wichSen
 			hum = ss_ens210.getHumidityPercent();
 			break;
 		}
-		/*
 		case SENSOR_ENS210_ABSHUM: {
-			hum = ens210.getAbsoluteHumidityPercent();
+			hum = ss_ens210.getAbsoluteHumidityPercent();
 			break;
 		}
-		*/
 		default: {
 			return false;
 			break;
