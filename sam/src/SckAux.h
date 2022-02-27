@@ -11,6 +11,7 @@
 
 
 #include <Arduino.h>
+#include <math.h>
 #include <SckBase.h>
 #include <Sensors.h>
 
@@ -932,6 +933,10 @@ class Sck_ADS1X15
 		bool getReading(SckBase* base,AuxBoards* auxBoard,uint8_t wichChannel, SensorType wichSensor);
 		float reading;
 
+		// control functions for the noise reduction parameters
+		void setNRSamples(uint8_t samples);
+		void setNRSmoothing(uint8_t historylength);
+
 		#ifdef adsTest
 		uint8_t adsChannelW = 0; // Default channel for WE
 		uint8_t adsChannelA = 1; // Default channel for AE
@@ -944,14 +949,22 @@ class Sck_ADS1X15
 		void runTester(uint8_t wichChannel);
 		testerGasesBoard tester;
 		#endif
-
+		uint8_t HISTORYMAXLENGTH=20;
 	private:
+		
+		void ringBufferAdd(uint8_t wichChannel,float newReading);
 		float VOLTAGE = 3.3;
 		bool started = false;
 		Adafruit_ADS1115 ads = Adafruit_ADS1115(&auxWire);
 		bool tcaMuxMode=false;
 		byte localPortNum= 0x00; // I2c mux port number (0 = no mux)
-
+		
+		uint8_t SAMPLE_NUM=5;
+		uint8_t HISTORYLENGTH=5;
+		
+		uint8_t HISTORYPTR[4]={0};		// one pointer for each channel per device
+		// arrays (one per channel) of the averages of up to 5 past readings.
+		float pastReadingAverages[4][20]={0};		// array size allows for more hisory (changed via CLI Command)
 	// TODO
 	// Test ADS1015
 };

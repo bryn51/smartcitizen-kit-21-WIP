@@ -83,10 +83,10 @@ void SckUrban::getReading(SckBase *base, OneSensor *wichSensor)
 		case SENSOR_LIGHT:			if (sck_bh1730fvc.get()) 			{ wichSensor->reading = String(sck_bh1730fvc.reading); return; } break;
 		case SENSOR_TEMPERATURE: 		if (sck_sht31.getReading()) 			{ wichSensor->reading = String(sck_sht31.temperature); return; } break;
 		case SENSOR_HUMIDITY: 			if (sck_sht31.getReading()) 			{ wichSensor->reading = String(sck_sht31.humidity); return; } break;
-		case SENSOR_NOISE_DBA: 			if (sck_noise.getReading(base,SENSOR_NOISE_DBA)) {  wichSensor->reading = String(sck_noise.readingDB);  return;	}  break;
-		case SENSOR_NOISE_DBC: 			if (sck_noise.getReading(base,SENSOR_NOISE_DBC)) 	{ wichSensor->reading = String(sck_noise.readingDB); return; } break;
-		case SENSOR_NOISE_DBZ: 			if (sck_noise.getReading(base,SENSOR_NOISE_DBZ)) 	{ wichSensor->reading = String(sck_noise.readingDB); return; } break;
-		case SENSOR_NOISE_FFT: 			if (sck_noise.getReading(base,SENSOR_NOISE_FFT)) 	{
+		case SENSOR_NOISE_DBA: 			if (sck_noise.getReading(SENSOR_NOISE_DBA)) 	{ wichSensor->reading = String(sck_noise.readingDB); return; } break;
+		case SENSOR_NOISE_DBC: 			if (sck_noise.getReading(SENSOR_NOISE_DBC)) 	{ wichSensor->reading = String(sck_noise.readingDB); return; } break;
+		case SENSOR_NOISE_DBZ: 			if (sck_noise.getReading(SENSOR_NOISE_DBZ)) 	{ wichSensor->reading = String(sck_noise.readingDB); return; } break;
+		case SENSOR_NOISE_FFT: 			if (sck_noise.getReading(SENSOR_NOISE_FFT)) 	{
 								for (uint16_t i=1; i<sck_noise.FFT_NUM; i++) SerialUSB.println(sck_noise.readingFFT[i]);
 								return;// TODO find a way to give access to readingsFFT instead of storing them on a String (too much RAM)
 								// For now it is disabled; but can be enbled and run manually via UI
@@ -107,10 +107,6 @@ void SckUrban::getReading(SckBase *base, OneSensor *wichSensor)
 		case SENSOR_PN_10: 			sck_pm.getReading(base, wichSensor); if (wichSensor->state == -1) break; if (wichSensor->state == 0) wichSensor->reading = String(sck_pm.pn10); return;
 		default: break;
 	}
-	
-	base->sckOut("URBAN getReading fell through (eg failed) to the end for ",PRIO_MED,false);
-	sprintf(base->outBuff,"sensor %s",base->sensors[wichSensor->type].title);
-	base->sckOut(PRIO_MED,true);
 	wichSensor->reading = "null";
 	wichSensor->state = -1;
 }
@@ -509,44 +505,24 @@ bool Sck_Noise::start()
 
 	REG_GCLK_GENCTRL = GCLK_GENCTRL_ID(4);  // Select GCLK4
 	while (GCLK->STATUS.bit.SYNCBUSY);
-	delay(1);
-	if (!I2S.begin(I2S_PHILIPS_MODE, sampleRate, 32)) return false;
-
-	uint32_t startPoint = millis();
-	while (millis() - startPoint < 250) I2S.read();
 
 	alreadyStarted = true;
 	return true;
 }
 bool Sck_Noise::stop()
 {
-	I2S.end();
-
 	return true;
 }
-bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
+bool Sck_Noise::getReading(SensorType wichSensor)
 {
-	//uint32_t testtimer=micros();
-	base->sckOut("Noise:",PRIO_MED,true);
+	if (!I2S.begin(I2S_PHILIPS_MODE, sampleRate, 32)) return false;
 
-	//if (!I2S.begin(I2S_PHILIPS_MODE, sampleRate, 32)) return false;  (moved to ::start)
-
-	
-	//base->sckOut("priming I2S port ... ",PRIO_MED,false);
-	//uint32_t testtimer2=micros();
-
-	uint32_t startPoint = millis();
 	// Wait 263000 I2s cycles or 85 ms at 441000 hz
-	while (millis() - startPoint < 250)  I2S.read();
+	uint32_t startPoint = millis();
+	while (millis() - startPoint < 200) I2S.read();
 	
-	//sprintf(base->outBuff, ":: finished priming I2S ::");
-	base->sckOut(PRIO_MED,true); 
-	
-
-	// receive buffer
-	// could this be causing a memory overwrite issue ?  There are 512 4 byte samples.... so... 2 KBytes  allocated on the heap ?
-	// int32_t source[SAMPLE_NUM];		:: possible soution:  moved to sckUrban.h	
-
+	// Fill buffer with samples from I2S bus
+	int32_t source[SAMPLE_NUM];
 	uint16_t bufferIndex = 0;
 
 	startPoint = millis();
@@ -561,12 +537,11 @@ bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 		}
 
 		if (millis() - startPoint > timeOut) {
-			//I2S.end();		// once :: not sure if this should stay or go.
+			I2S.end();
 			return false;
 		}
 	}
-	//I2S.end();		// twice
-	//base->sckOut("sckNoise:getReading ended I2S data reception",PRIO_LOW,true);
+	I2S.end();
 
 	// Get the average of recorded samples
 	int32_t sum = 0;
@@ -575,12 +550,9 @@ bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 
 	// Center samples in zero
 	for (uint16_t i=0; i<SAMPLE_NUM; i++) source[i] = source[i] - avg;
-	//base->sckOut("sckNoise:getReading samples have been averaged",PRIO_LOW,true);
 
 	// FFT
-	//base->sckOut("sckNoise:getReading perform FFT",PRIO_LOW,true);
 	FFT(source);
-	//base->sckOut("sckNoise:getReading finished performing FFT, beginning weighting and averaging",PRIO_LOW,true);
 
 	switch(wichSensor) {
 
@@ -609,21 +581,11 @@ bool Sck_Noise::getReading(SckBase* base,SensorType wichSensor)
 	long long rmsSum = 0;
 	double rmsOut = 0;
 	for (uint16_t i=0; i<FFT_NUM; i++) rmsSum += pow(readingFFT[i], 2) / FFT_NUM;
-	//sprintf(base->outBuff,"Noise rmsSum reading as a number (float) %g",float(rmsSum));
-	if (rmsSum > 0) {
-		rmsOut = sqrt(rmsSum);
-	} else {
-		rmsOut = 0;
-	}
+	rmsOut = sqrt(rmsSum);
 	rmsOut = rmsOut * 1 / RMS_HANN * sqrt(FFT_NUM) / sqrt(2);
 
 	// Convert to dB
 	readingDB = (double) (FULL_SCALE_DBSPL - (FULL_SCALE_DBFS - (20 * log10(rmsOut * sqrt(2)))));
-
-	//sprintf(base->outBuff,"Noise rmsOut reading as a number (float) %g",float(rmsOut));
-	base->sckOut(PRIO_MED,true);
-	//sprintf(base->outBuff,"Noise reading as a number (float) %f",readingDB);
-	base->sckOut(PRIO_MED,true);
 
 	if (debugFlag) {
 		SerialUSB.println("samples, FFT_weighted");
@@ -1108,15 +1070,14 @@ bool Sck_CCS811::getReading(SckBase *base)
 	uint32_t rtcNow = rtc->getEpoch();
 	if (((startTime == 0) || ((rtcNow - startTime) < warmingTime)) && !base->inTest) {
 		if (debug) {
-			base->sckOut("CCS811: in warming period!!",PRIO_MED,true);
-			//base->sckOut("CCS811: Readings will be ready in (sec): ",PRIO_MED,false);
-			//sprintf(base->outBuff," %i",warmingTime - (rtcNow - startTime));
-			//base->sckOut(PRIO_MED,true);
+			SerialUSB.println("CCS811: in warming period!!");
+			SerialUSB.print("CCS811: Readings will be ready in (sec): ");
+			SerialUSB.println(warmingTime - (rtcNow - startTime));
 		}
 		return false;
 	}
 	if (millis() - lastReadingMill < 5000) {
-		if (debug) base->sckOut("CCS811: (not enough time passed)",PRIO_LOW,true);
+		if (debug) SerialUSB.println("CCS811: (not enough time passed)");
 		return true; // This prevents getting different updates for ECO2 and VOCS
 	}
 
@@ -1129,15 +1090,15 @@ bool Sck_CCS811::getReading(SckBase *base)
 		}
 
 		if (debug) {
-			sprintf(base->outBuff,"CCS811: Drivemode interval (ms): %ld ",Uinterval);
-			base->sckOut(PRIO_LOW,true);
+			SerialUSB.print("CCS811: Drivemode interval (ms): ");
+			SerialUSB.println(Uinterval);
 		}
 
 		if (millis() - lastReadingMill < Uinterval) {
-			if (debug) base->sckOut("CCS811: using old readings (not enough time passed)",PRIO_LOW,true);
+			if (debug) SerialUSB.println("CCS811: using old readings (not enough time passed)");
 			return true;  // We will use last reading because  sensor is not programmed to give us readings so often
 		}
-		if (debug) base->sckOut("CCS811: ERROR obtaining reading!!",PRIO_MED,true);
+		if (debug) SerialUSB.println("CCS811: ERROR obtaining reading!!");
 		return false;
 	}
 

@@ -1,6 +1,6 @@
 
 #include <Arduino.h>
-#include <String.h>
+// #include <String.h>
 #include "SckAux.h"
 
 #ifndef GASBOARD_DISABLE
@@ -393,7 +393,7 @@ bool AuxBoards::stop(SckBase* base, SensorType wichSensor)
 void AuxBoards::getReading(SckBase* base, OneSensor *wichSensor)
 {
 	//sprintf(base->outBuff,"AUX is reading: %s",base->sensors[wichSensor->type].title);
-	//base->sckOut(PRIO_MED,true);
+	//base->sckOut(PRIO_LOW,true);
 
 	if (TCAMUXMODE) resetI2CMux();
 	
@@ -513,8 +513,8 @@ void AuxBoards::getReading(SckBase* base, OneSensor *wichSensor)
 
 		default: break;
 	}
-	//sprintf(base->outBuff,"AUX did not read from: %s",base->sensors[wichSensor->type].title);
-	//base->sckOut(PRIO_MED,true);
+	sprintf(base->outBuff,"AUX did not read from: %s",base->sensors[wichSensor->type].title);
+	base->sckOut(PRIO_LOW,true);
 	wichSensor->reading = "null";
 	wichSensor->state = -1;
 }
@@ -732,7 +732,31 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 		case SENSOR_ADS1X15_48_1:
 		case SENSOR_ADS1X15_48_2:
 		case SENSOR_ADS1X15_48_3: {
+			if (command.startsWith("samples")) {
+				command.replace("samples", "");
+				command.trim();
+
+				int wichValue = command.toInt();
+				if ((wichValue <=100) && (wichValue > 1)) {
+					ads48.setNRSamples(wichValue);
+				} else {
+					return F("Error!!\r\nOptions:\r\nsamples value (1-100)\r\nhistory value (1-20)");
+				}
+					
+			} else if (command.startsWith("history")){
+				command.replace("history", "");
+				command.trim();
+
+				int wichValue = command.toInt();
+				if ((wichValue <=ads48.HISTORYMAXLENGTH) && (wichValue > 1)) {
+					ads48.setNRSmoothing(wichValue);
+				} else {
+					return F("Error!!\r\nOptions:\r\nsamples value (1-100)\r\nhistory value (1-20)");
+
+				}
+			}
 #ifdef adsTest
+			else
 			if (command.startsWith("test")) {
 				command.replace("test", "");
 				command.trim();
@@ -770,7 +794,31 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 		case SENSOR_ADS1X15_49_1:
 		case SENSOR_ADS1X15_49_2:
 		case SENSOR_ADS1X15_49_3: {
+			if (command.startsWith("samples")) {
+				command.replace("samples", "");
+				command.trim();
+
+				int wichValue = command.toInt();
+				if ((wichValue <=100) && (wichValue > 1)) {
+					ads49.setNRSamples(wichValue);
+				} else {
+					return F("Error!!\r\nOptions:\r\nsamples value (1-100)\r\nhistory value (1-20)");
+				}
+					
+			} else if (command.startsWith("history")){
+				command.replace("history", "");
+				command.trim();
+
+				int wichValue = command.toInt();
+				if ((wichValue <=ads49.HISTORYMAXLENGTH) && (wichValue > 1)) {
+					ads49.setNRSmoothing(wichValue);
+				} else {
+					return F("Error!!\r\nOptions:\r\nsamples value (1-100)\r\nhistory value (1-20)");
+
+				}
+			}
 #ifdef adsTest
+			else
 			if (command.startsWith("test")) {
 				command.replace("test", "");
 				command.trim();
@@ -808,7 +856,31 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 		case SENSOR_ADS1X15_4A_1:
 		case SENSOR_ADS1X15_4A_2:
 		case SENSOR_ADS1X15_4A_3: {
+			if (command.startsWith("samples")) {
+				command.replace("samples", "");
+				command.trim();
+
+				int wichValue = command.toInt();
+				if ((wichValue <=100) && (wichValue > 1)) {
+					ads4A.setNRSamples(wichValue);
+				} else {
+					return F("Error!!\r\nOptions:\r\nsamples value (1-100)\r\nhistory value (1-20)");
+				}
+					
+			} else if (command.startsWith("history")){
+				command.replace("history", "");
+				command.trim();
+
+				int wichValue = command.toInt();
+				if ((wichValue <=ads4A.HISTORYMAXLENGTH) && (wichValue > 1)) {
+					ads4A.setNRSmoothing(wichValue);
+				} else {
+					return F("Error!!\r\nOptions:\r\nsamples value (1-100)\r\nhistory value (1-20)");
+
+				}
+			}
 #ifdef adsTest
+			else
 			if (command.startsWith("test")) {
 				command.replace("test", "");
 				command.trim();
@@ -846,7 +918,31 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 		case SENSOR_ADS1X15_4B_1:
 		case SENSOR_ADS1X15_4B_2:
 		case SENSOR_ADS1X15_4B_3: {
+			if (command.startsWith("samples")) {
+				command.replace("samples", "");
+				command.trim();
+
+				int wichValue = command.toInt();
+				if ((wichValue <=100) && (wichValue > 1)) {
+					ads4B.setNRSamples(wichValue);
+				} else {
+					return F("Error!!\r\nOptions:\r\nsamples value (1-100)\r\nhistory value (1-20)");
+				}
+					
+			} else if (command.startsWith("history")){
+				command.replace("history", "");
+				command.trim();
+
+				int wichValue = command.toInt();
+				if ((wichValue <=ads4B.HISTORYMAXLENGTH) && (wichValue > 1)) {
+					ads4B.setNRSmoothing(wichValue);
+				} else {
+					return F("Error!!\r\nOptions:\r\nsamples value (1-100)\r\nhistory value (1-20)");
+
+				}
+			}
 #ifdef adsTest
+			else
 			if (command.startsWith("test")) {
 				command.replace("test", "");
 				command.trim();
@@ -947,9 +1043,6 @@ String AuxBoards::control(SckBase* base,SensorType wichSensor, String command)
 		case SENSOR_SCD4x_TEMP:
 		case SENSOR_SCD4x_HUM: {
 			if (command.startsWith("interval")) {
-			
-				
-
 				command.replace("interval", "");
 				command.trim();
 
@@ -3323,19 +3416,24 @@ bool NEOM8UGPS::start(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 
 	if (!ubloxGps.begin(auxWire)) return false;
 
+	//ubloxGps.factoryReset();			// perform factory reset (normally not required)
+	//delay(1000);
+
 	// Lowpower mode Off
 	ubloxGps.powerSaveMode(false, 1);	// turn off power save mode
 	ubloxGps.setUART1Output(0); 		// Disable the UART1 port output
 	ubloxGps.setUART2Output(0); 		// Disable Set the UART2 port output
 	ubloxGps.setI2COutput(COM_TYPE_UBX); 	// Set the I2C port to output UBX only (turn off NMEA noise)
-	ubloxGps.setNavigationFrequency(4);
-	ubloxGps.setAutoPVT(true); 		// Tell the GPS to "send" each solution
+	ubloxGps.setNavigationFrequency(4);		//Set the number of nav solutions sent per second = 4 times persecond
+	ubloxGps.setAutoPVT(true); 			// Tell the GPS to "send" each solution
 	ubloxGps.saveConfiguration(); 		// Save the current settings to flash and BBR
 
 	auxWire.endTransmission();
 
 	return true;
 }
+
+
 bool NEOM8UGPS::stop(SckBase* base,AuxBoards* auxBoard,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE ) {
@@ -3632,6 +3730,29 @@ bool Sck_ADS1X15::stop()
 	return true;
 }
 
+void Sck_ADS1X15::ringBufferAdd(uint8_t wichChannel,float newReading) {
+
+	pastReadingAverages[wichChannel][HISTORYPTR[wichChannel]]=newReading;
+	HISTORYPTR[wichChannel]++;
+	if (HISTORYPTR[wichChannel] >= HISTORYLENGTH) HISTORYPTR[wichChannel]=0;
+
+}
+
+void Sck_ADS1X15::setNRSamples(uint8_t samples) {
+
+	SAMPLE_NUM = samples;
+
+}
+void Sck_ADS1X15::setNRSmoothing(uint8_t historylength) {
+	
+	if (historylength <= HISTORYMAXLENGTH) {
+		HISTORYLENGTH = historylength;
+	} else {
+		HISTORYLENGTH = HISTORYMAXLENGTH-1;
+	}
+
+}
+
 bool Sck_ADS1X15::getReading(SckBase* base,AuxBoards* auxBoard,uint8_t wichChannel,SensorType wichSensor)
 {
 	if (auxBoard->TCAMUXMODE ) {
@@ -3640,51 +3761,106 @@ bool Sck_ADS1X15::getReading(SckBase* base,AuxBoards* auxBoard,uint8_t wichChann
 		}
 	} else if (!I2Cdetect(&auxWire, deviceAddress)) return false;
 
+	//sprintf(base->outBuff, "Getting a reading from sensor %s channel %i gain", base->sensors[wichSensor].title, GAIN_TWOTHIRDS);
+	//base->sckOut(PRIO_MED,true);
+
+	float readings[SAMPLE_NUM];
+	float myreading;
+
 	// Reset gain
 	ads.setGain(GAIN_TWOTHIRDS);
-	double voltage_range = 6.144;
+	float voltage_range = 6.144;
 
 	// Get value with full range
 	uint16_t value = ads.readADC_SingleEnded(wichChannel);
+	uint16_t thisdelay=0;
 
+	//sprintf(base->outBuff, "Initial reading value %i on %i gain", value, GAIN_TWOTHIRDS);
+	//base->sckOut(PRIO_MED,true);
+
+	// initialise the random number generator using the first reading value (a number between 0 and 32768)
+	randomSeed(value);
+	
+	// Auto ranging adjustment for gain of the ADS1115
 	// If value is under 4.096v increase the gain depending on voltage
+	// this is done to put the reading into the middle of the most accurate part of the range.
 	if (value < 21845) {
 		if (value > 10922) {
 
 			// 1x gain, 4.096V
 			ads.setGain(GAIN_ONE);
 			voltage_range = 4.096;
+			//sprintf(base->outBuff, "gain set to  %i voltage range %f", GAIN_ONE,voltage_range);
 
 		} else if (value > 5461) {
 
 			// 2x gain, 2.048V
 			ads.setGain(GAIN_TWO);
 			voltage_range = 2.048;
+			//sprintf(base->outBuff, "gain set to  %i voltage range %f", GAIN_TWO,voltage_range);
 
 		} else if (value > 2730) {
 
 			// 4x gain, 1.024V
 			ads.setGain(GAIN_FOUR);
 			voltage_range = 1.024;
+			//sprintf(base->outBuff, "gain set to  %i voltage range %f", GAIN_FOUR,voltage_range);
 
 		} else if (value > 1365) {
 
 			// 8x gain, 0.25V
 			ads.setGain(GAIN_EIGHT);
 			voltage_range = 0.512;
+			//sprintf(base->outBuff, "gain set to  %i voltage range %f", GAIN_EIGHT,voltage_range);
 
 		} else {
 
 			// 16x gain, 0.125V
 			ads.setGain(GAIN_SIXTEEN);
 			voltage_range = 0.256;
+			//sprintf(base->outBuff, "gain set to  %i voltage range %f", GAIN_SIXTEEN,voltage_range);
 		}
-
-		// Get the value again
-		value = ads.readADC_SingleEnded(wichChannel);
 	}
 
-	reading = (float)value / 32768 * voltage_range;
+	// Get the reading value again
+	// read SAMPLE_NUM samples at random intervals up to 100 uS apart (at most, 500 uS delay overall)
+	for (uint8_t i=0; i<SAMPLE_NUM;i++) {
+		// get the reading value (binary 2's complement integer)
+		value = ads.readADC_SingleEnded(wichChannel);
+		// make the reading into a voltage value
+		readings[i] = (float)value / 32768 * voltage_range;
+		// make the next sample a random interval (up to 1 mS) later: this is to avoid tracking harmonic patterns in amongst the noise
+		thisdelay=random(1000);
+		//sprintf(base->outBuff,"sample %i Reading Voltage %f next reading delay %i",i,readings[i],thisdelay);
+		//base->sckOut(PRIO_MED,true);
+		delayMicroseconds(thisdelay);
+	}
+	
+
+	// Get the average of recorded samples
+	double sum = 0;
+	for (uint16_t i=0; i<SAMPLE_NUM; i++) sum += readings[i];
+	myreading = sum / SAMPLE_NUM;
+
+	//sprintf(base->outBuff, "Average value of %i readings was %f",SAMPLE_NUM, myreading);
+	//base->sckOut(PRIO_MED,true);
+
+	// add this average into the History array for this channel
+	ringBufferAdd(wichChannel,myreading);
+
+	// further smoothing 
+	// Get average of recorded history reading averages (including the current value)
+	float sumHistory = 0;
+	uint8_t RdgCount=0;
+	for (uint16_t i=0; i<HISTORYLENGTH; i++) {
+		if (pastReadingAverages[wichChannel][i] > 0 ) {
+			sumHistory += pastReadingAverages[wichChannel][i];
+			RdgCount++;
+		}
+	}
+	reading = sumHistory / RdgCount;
+	//sprintf(base->outBuff, "Sum of Historical Readings %f Avg value of %i historical average readings was %f",sumHistory,RdgCount, reading);
+	//base->sckOut(PRIO_MED,true);
 
 	return true;
 }
@@ -4140,9 +4316,16 @@ bool Sck_SCD4x::setPressureComp(SckBase* base,bool value) {
 					base->sckOut(PRIO_MED,true);
 					comp = true;
 				}
+			} else {
+				sprintf(base->outBuff,"Pressure Reading : %03.02f kPa",pressureReading);
+				base->sckOut(PRIO_MED,true);
+				base->sckOut("Pressure Reading is not within bounds",PRIO_MED,true);
 			}
+		} else {
+			base->sckOut("Could not access Pressure Reading",PRIO_MED,true);
 		}
 	} else {
+		base->sckOut("Pressure Compensation Disabled",PRIO_MED,true);
 		sparkfun_SCD4x.setAmbientPressure(0,0);  // 0,0 = zero pressure; no delay.  We do not wait for command to finish execution (1 mS)
 		comp = false;
 	}
@@ -4180,6 +4363,8 @@ uint16_t Sck_SCD4x::forcedRecalFactor(SckBase* base,AuxBoards* auxBoard,SensorTy
 		FRCCorrection=sparkfun_SCD4x.performForcedRecalibration(newFactor);
 		sprintf(base->outBuff,"SCD41 forced recalibration activated.  FRCCorrection factor : %f",FRCCorrection);
 		base->sckOut(PRIO_MED,true);
+	} else {
+		base->sckOut("Requested Recalibration Factor was out of Bounds",PRIO_MED,true);
 	}
 	
 	return FRCCorrection;

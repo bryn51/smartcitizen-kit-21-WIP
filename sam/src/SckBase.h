@@ -29,15 +29,7 @@
 #include "SckAux.h"
 #include "SckList.h"
 
-
 #include "version.h"
-// Seeed Studios TCA9549A 8 channel I2C Mux (Switch)
-// deployed in SCS V3 when needed to help balance the I2C bus when one device blocks others from using the bus.
-// its not deployed to deal with duplicate I2C addresses (a more normal way to use such a Mux)
-
-
-extern TwoWire auxWire;
-
 
 class Status
 {
@@ -269,13 +261,12 @@ class SckBase
 
 		// Output
 		const char *outLevelTitles[OUT_COUNT] PROGMEM = { "Silent",	"Normal", "Verbose"	};
-		char outBuff[265];
+		char outBuff[300];
 		void sckOut(String strOut, PrioLevels priority=PRIO_MED, bool newLine=true);	// Accepts String object
 		void sckOut(const char *strOut, PrioLevels priority=PRIO_MED, bool newLine=true);	// Accepts constant string
 		void sckOut(PrioLevels priority=PRIO_MED, bool newLine=true);
 		void prompt();
 		void plot(String value, const char *title=NULL, const char *unit=NULL);
-		uint8_t currentDisplay=1;
 
 		// Button
 		volatile bool butState = true;

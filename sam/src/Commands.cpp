@@ -33,7 +33,7 @@ void AllCommands::in(SckBase* base, String strIn)
 	if (reqComm < COM_COUNT) com_list[reqComm].function(base, strIn);  // This is where the specified command is executed
 	else base->sckOut("Unrecognized command!!");
 
-	base->sckOut("Command was executed ",PRIO_MED,true);
+	// base->sckOut("Command was executed ",PRIO_MED,true);
 }
 void AllCommands::wildCard(SckBase* base, String strIn)
 {
@@ -160,11 +160,8 @@ void sensorConfig_com(SckBase* base, String parameters)
 				snprintf(base->outBuff, sizeof(base->outBuff), "%s -> every %i int (%lu sec)", base->sensors[thisType].title, base->sensors[thisType].everyNint, (base->sensors[thisType].everyNint * base->config.readInterval));
 				base->sckOut(PRIO_MED, false);
 
-				if ((base->sensors[SENSOR_GROVE_OLED].enabled || base->sensors[SENSOR_GROVE_OLED2].enabled) && base->config.sensors[thisType].oled_display)  {
-					base->sckOut(" - oled");
-				} else {
-					base->sckOut(" ");
-				}
+				if (base->sensors[SENSOR_GROVE_OLED].enabled && base->config.sensors[thisType].oled_display)  base->sckOut(" - oled");
+				else base->sckOut(" ");
 			}
 		}
 
@@ -219,11 +216,8 @@ void sensorConfig_com(SckBase* base, String parameters)
 				}
 				saveNeeded = true;
 			} else {
-				if (groupToChange > 0) {
-					sprintf(base->outBuff, "Failed enabling %s and its sensor group", base->sensors[sensorToChange].title);
-				} else {
-					sprintf(base->outBuff, "Failed enabling %s", base->sensors[sensorToChange].title);
-				}
+				if (groupToChange == 0) sprintf(base->outBuff, "Failed enabling %s", base->sensors[sensorToChange].title);
+				if (groupToChange > 0) sprintf(base->outBuff, "Failed enabling %s and its sensor group",base->sensors[sensorToChange].title);
 				base->sckOut();
 			}
 

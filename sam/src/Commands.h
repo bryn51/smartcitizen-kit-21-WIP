@@ -6,6 +6,7 @@
 extern TwoWire auxWire;
 
 // channel numbers for TCA9458A I2C mux
+/*
 #define TCA_CHANNEL_0 0x1
 #define TCA_CHANNEL_1 0x2
 #define TCA_CHANNEL_2 0x4
@@ -14,7 +15,7 @@ extern TwoWire auxWire;
 #define TCA_CHANNEL_5 0x20
 #define TCA_CHANNEL_6 0x40
 #define TCA_CHANNEL_7 0x80
-
+*/
 class SckBase;
 
 // Define command type

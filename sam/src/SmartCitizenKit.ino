@@ -45,12 +45,8 @@ void setup() {
 
 void loop() {
 	base.update();
-	delay(100);
 }
 
-// the following function appears to be bound to input received on SerialUSB; 
-// an event (ISR) is fixed each time there is a character typed on the UI.
-// flow: serialEventRun -> base::inputUpdate -> (Command) In()
 void serialEventRun() {
 	base.inputUpdate();
 }
